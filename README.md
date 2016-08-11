@@ -1,6 +1,6 @@
 # SymSpellPlusPlus
-SymSpell C++ Ports
-This code originally based on faroo.com's C# code. It has got a some performence issue and i will fix it.
+
+Code originally based on faroo.com's C# code. It has got a some performence issue and i will fix it.
 Only you need include header file to your project and set words via CreateDictionaryEntry function after than you can check matches via Correct function.
 
 I will create Python implemantation over c++ code for performence.<br>
@@ -9,8 +9,7 @@ Based on : [1000x Faster Spelling Correction algorithm](http://blog.faroo.com/20
 
 
 
-demo:
-=====
+##Usage
 ```c++
 #include <iostream>
 #include "symspell.h"
@@ -26,3 +25,10 @@ int main(int argc, const char * argv[]) {
     return 0;
 }
 ```
+
+##License
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License, 
+version 3.0 (LGPL-3.0) as published by the Free Software Foundation.
+[http://www.opensource.org/licenses/LGPL-3.0](http://www.opensource.org/licenses/LGPL-3.0)
