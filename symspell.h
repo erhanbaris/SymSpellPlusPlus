@@ -2,15 +2,18 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <map>
 #include <regex>
 #include <algorithm>
-#include <set>
 #include <math.h>
 #include <algorithm>
 #include <ctime>
 #include <chrono>
 #include <fstream>
+#include <sparsehash/dense_hash_map>
+#include <sparsehash/dense_hash_set>
+
+#define set google::dense_hash_set
+#define map google::dense_hash_map
 
 #define min(a, b)  (((a) < (b)) ? (a) : (b))
 #define max(a, b)  (((a) > (b)) ? (a) : (b))
@@ -41,24 +44,14 @@ public:
 class dictionaryItemContainer
 {
 public:
-    dictionaryItemContainer() {
+    dictionaryItemContainer(void) {
         dictValue = NULL;
     }
     
     enum type { NONE, ITEM, INTEGER };
     type itemType;
-    //union {
     int intValue;
     dictionaryItem* dictValue;
-    //};
-    
-    ~dictionaryItemContainer()
-    {
-        /*if (itemType == ITEM && !!dictValue)
-         {
-         delete dictValue;
-         }*/
-    }
 };
 
 class suggestItem
@@ -85,6 +78,7 @@ public:
     SymSpell()
     {
         setlocale(LC_ALL, "");
+        dictionary.set_empty_key("");
     }
     
     void CreateDictionary(string corpus)
@@ -154,6 +148,8 @@ public:
             result = true;
             
             auto deleted = set<string>();
+            deleted.set_empty_key("");
+            
             Edits(key, 0, deleted);
             
             for (string del : deleted)
@@ -192,32 +188,7 @@ public:
     vector<suggestItem> Correct(string input)
     {
         vector<suggestItem> suggestions;
-        
-        using namespace std::chrono;
-        
-        high_resolution_clock::time_point t1 = high_resolution_clock::now();
-        
-        for (int i = 0; i < 100000; i++)
-        {
-            suggestions = Lookup(input, editDistanceMax);
-        }
-        
-        high_resolution_clock::time_point t2 = high_resolution_clock::now();
-        duration<double> time_span = duration_cast<duration<double>>(t2 - t1);
-        
-        std::cout << "It took me " << time_span.count() << " seconds.";
-        std::cout << std::endl;
-        
-        //check in dictionary for existence and frequency; sort by ascending edit distance, then by descending word frequency
         suggestions = Lookup(input, editDistanceMax);
-        
-        //display term and frequency
-        for (suggestItem & suggestion : suggestions)
-            cout << suggestion.term << " " << suggestion.distance << " " << suggestion.count << endl;
-        
-        if (verbose != 0)
-            cout << suggestions.size() << " suggestions" << endl;
-        
         return suggestions;
         
     }
@@ -285,9 +256,11 @@ private:
         
         vector<string> candidates;
         set<string> hashset1;
+        hashset1.set_empty_key("");
         
         vector<suggestItem> suggestions;
         set<string> hashset2;
+        hashset2.set_empty_key("");
         
         //object valueo;
         
@@ -426,7 +399,7 @@ private:
     };
     
     
-    static size_t DamerauLevenshteinDistance2(const std::string &s1, const std::string &s2)
+    static size_t DamerauLevenshteinDistance(const std::string &s1, const std::string &s2)
     {
         const size_t m(s1.size());
         const size_t n(s2.size());
@@ -466,74 +439,5 @@ private:
         delete[] costs;
         
         return result;
-    }
-    
-    
-    static int DamerauLevenshteinDistance(string const & source, string const & target)
-    {
-        int m = source.size();
-        int n = target.size();
-        
-        int* array_data = new int[(m+2)*(n+2)];
-        int** H = new int*[m+2];
-        
-        for (int i = 0; i < m+2; ++i)
-            H[i] = array_data + (n+2)*i;
-        
-        int INF = m + n;
-        H[0][0] = INF;
-        for (int i = 0; i <= m; i++)
-        {
-            H[i + 1][1] = i;
-            H[i + 1][0] = INF;
-        }
-        
-        for (int j = 0; j <= n; j++)
-        {
-            H[1][j + 1] = j;
-            H[0][j + 1] = INF;
-        }
-        
-        map<int, int> sd;
-        
-        const char * targetP = target.c_str();
-        const char * sourceP = source.c_str();
-        
-        for (const char& Letter : source)
-            sd.insert(pair<int, int>(Letter, 0));
-        
-        for (const char& Letter : target)
-            sd.insert(pair<int, int>(Letter, 0));
-        
-        for (int i = 1; i <= m; i++)
-        {
-            int DB = 0;
-            for (int j = 1; j <= n; j++)
-            {
-                int i1 = sd[targetP[j - 1]];
-                int j1 = DB;
-                
-                if (sourceP[i - 1] == targetP[j - 1])
-                {
-                    H[i + 1][j + 1] = H[i][j];
-                    DB = j;
-                }
-                else
-                {
-                    H[i + 1][j + 1] = min(H[i][j], min(H[i + 1][j], H[i][j + 1])) + 1;
-                }
-                
-                H[i + 1][j + 1] = min(H[i + 1][j + 1], H[i1][j1] + (i - i1 - 1) + 1 + (j - j1 - 1));
-            }
-            
-            sd[sourceP[i - 1]] = i;
-        }
-        
-        int returnValue = H[m + 1][n + 1];
-        
-        delete[] array_data;
-        delete[] H;
-        
-        return returnValue;
     }
 };
