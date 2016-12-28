@@ -1,9 +1,7 @@
 # SymSpellPlusPlus
 
-Code originally based on faroo.com's C# code. It has got a some performence issue and i will fix it.
+Code originally based on faroo.com's C# code.
 Only you need include header file to your project and set words via CreateDictionaryEntry function after than you can check matches via Correct function.
-
-I will create Python implemantation over c++ code for performence.<br>
 
 Based on : [1000x Faster Spelling Correction algorithm](http://blog.faroo.com/2012/06/07/improved-edit-distance-based-spelling-correction/)<br>
 

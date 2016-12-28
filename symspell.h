@@ -2,7 +2,8 @@
 
 #define USE_GOOGLE_DENSE_HASH_MAP
 #define VECTOR_RESERVED_SIZE 2048
-//#define ENABLE_TEST
+#define ENABLE_TEST
+#undef ENABLE_TEST
 
 #include <iostream>
 #include <string>
@@ -57,13 +58,12 @@ class dictionaryItemContainer
 {
 public:
 	dictionaryItemContainer(void) {
-		dictValue = NULL;
 	}
 
-	enum type { NONE, ITEM, INTEGER };
+	enum type { NONE, DICT, INTEGER };
 	type itemType;
 	size_t intValue;
-	dictionaryItem* dictValue;
+	std::shared_ptr<dictionaryItem> dictValue;
 };
 
 class suggestItem
@@ -133,8 +133,8 @@ public:
 
 			if (valueo->second.itemType == dictionaryItemContainer::INTEGER)
 			{
-				value.itemType = dictionaryItemContainer::ITEM;
-				value.dictValue = new dictionaryItem();
+				value.itemType = dictionaryItemContainer::DICT;
+				value.dictValue = std::make_shared<dictionaryItem>();
 				value.dictValue->suggestions.push_back(valueo->second.intValue);
 			}
 			else
@@ -145,8 +145,8 @@ public:
 		}
 		else if (wordlist.size() < INT_MAX)
 		{
-			value.itemType = dictionaryItemContainer::ITEM;
-			value.dictValue = new dictionaryItem();
+			value.itemType = dictionaryItemContainer::DICT;
+			value.dictValue = std::make_shared<dictionaryItem>();
 			++(value.dictValue->count);
 			string mapKey = key;
 			dictionary.insert(pair<size_t, dictionaryItemContainer>(getHastCode(mapKey), value));
@@ -177,8 +177,8 @@ public:
 				{
 					if (value2->second.itemType == dictionaryItemContainer::INTEGER)
 					{
-						value2->second.itemType = dictionaryItemContainer::ITEM;
-						value2->second.dictValue = new dictionaryItem();
+						value2->second.itemType = dictionaryItemContainer::DICT;
+						value2->second.dictValue = std::make_shared<dictionaryItem>();
 						value2->second.dictValue->suggestions.push_back(value2->second.intValue);
 						dictionary[getHastCode(del)].dictValue = value2->second.dictValue;
 
@@ -194,11 +194,9 @@ public:
 					tmp.itemType = dictionaryItemContainer::INTEGER;
 					tmp.intValue = keyint;
 
-					string mapKey = del;
-					dictionary.insert(pair<size_t, dictionaryItemContainer>(getHastCode(mapKey), tmp));
+					dictionary.insert(pair<size_t, dictionaryItemContainer>(getHastCode(del), tmp));
 					dictionaryEnd = dictionary.end();
 				}
-
 			}
 		}
 		return result;
@@ -258,7 +256,7 @@ private:
 		return returnData;
 	}
 
-	void AddLowestDistance(dictionaryItem * item, string suggestion, size_t suggestionint, string del)
+	void AddLowestDistance(shared_ptr<dictionaryItem> const & item, string suggestion, size_t suggestionint, string del)
 	{
 		if ((verbose < 2) && (item->suggestions.size() > 0) && (wordlist[item->suggestions[0]].size() - del.size() > suggestion.size() - del.size()))
 			item->suggestions.clear();
@@ -330,17 +328,19 @@ private:
 			{
 				if (valueo->second.itemType == dictionaryItemContainer::INTEGER)
 				{
-					valueo->second.itemType = dictionaryItemContainer::ITEM;
-					valueo->second.dictValue = new dictionaryItem();
+					valueo->second.itemType = dictionaryItemContainer::DICT;
+					valueo->second.dictValue = std::make_shared<dictionaryItem>();
 					valueo->second.dictValue->suggestions.push_back(valueo->second.intValue);
 				}
 
 
-				if ((valueo->second.dictValue->count > 0) && hashset2.insert(getHastCode(candidate)).second)
+				if (valueo->second.itemType == dictionaryItemContainer::DICT && 
+					valueo->second.dictValue->count > 0 && 
+					hashset2.insert(getHastCode(candidate)).second)
 				{
 					//add correct dictionary term term to suggestion list
 					suggestItem si;
-					si.term = move(candidate);
+					si.term = candidate;
 					si.count = valueo->second.dictValue->count;
 					si.distance = input.size() - candidateSize;
 					suggestions.push_back(si);
@@ -392,8 +392,11 @@ private:
 							if (value2 != dictionaryEnd)
 							{
 								suggestItem si;
-								si.term = move(suggestion);
-								si.count = value2->second.dictValue->count;
+								si.term = suggestion;
+								if (value2->second.itemType == dictionaryItemContainer::DICT)
+									si.count = value2->second.dictValue->count;
+								else 
+									si.count = 1;
 								si.distance = distance;
 								suggestions.push_back(si);
 							}
@@ -413,7 +416,7 @@ private:
 					string wordClone = candidate;
 					string && del = move(wordClone.erase(i, 1));
 					if (hashset1.insert(getHastCode(del)).second)
-						candidates.push_back(std::move(del));
+						candidates.push_back(del);
 				}
 			}
 		}//end while
@@ -441,7 +444,9 @@ private:
 	struct Xgreater2
 	{
 		bool operator()(const suggestItem& lx, const suggestItem& rx) const {
-			return 2 * (lx.distance - rx.distance) > (lx.count - rx.count);
+			auto cmpForLx = 2 * (lx.distance - rx.distance) - (lx.count - rx.count);
+			auto cmpForRx = 2 * (rx.distance - lx.distance) - (rx.count - lx.count);
+			return cmpForLx > cmpForRx;
 		}
 	};
 
