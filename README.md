@@ -5,6 +5,8 @@ Only you need include header file to your project and set words via CreateDictio
 
 Based on : [1000x Faster Spelling Correction algorithm](http://blog.faroo.com/2012/06/07/improved-edit-distance-based-spelling-correction/)<br>
 
+google::dense_hash_set using for performance improvements. If you don't want to use it only delete #define USE_GOOGLE_DENSE_HASH_MAP from symspell.h<br>
+msgpack using for saving and loading datas from disk. If you don't want to use it only delete #define IO_OPERATIONS from symspell.h<br>
 
 
 ##Usage
@@ -23,6 +25,7 @@ int main(int argc, const char * argv[]) {
     return 0;
 }
 ```
+
 
 ##License
 

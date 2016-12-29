@@ -3,6 +3,8 @@
 #define USE_GOOGLE_DENSE_HASH_MAP
 #define VECTOR_RESERVED_SIZE 2048
 #define ENABLE_TEST
+#define IO_OPERATIONS
+
 #undef ENABLE_TEST
 
 #include <iostream>
@@ -16,17 +18,28 @@
 #include <chrono>
 #include <fstream>
 #include <list>
+#include <sstream> 
+
+#ifdef IO_OPERATIONS
+#include <msgpack.hpp>
+#endif
 
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
 #include <sparsehash/dense_hash_map>
 #include <sparsehash/dense_hash_set>
 
-#define set google::dense_hash_set
-#define map google::dense_hash_map
+#define CUSTOM_SET google::dense_hash_set
+#define CUSTOM_MAP google::dense_hash_map
 #else
 #include <map>
 #include <set>
+
+#define CUSTOM_SET std::set
+#define CUSTOM_MAP std::map
 #endif
+
+#include <map>
+
 
 #define min(a, b)  (((a) < (b)) ? (a) : (b))
 #define max(a, b)  (((a) > (b)) ? (a) : (b))
@@ -52,7 +65,17 @@ public:
 	{
 		suggestions.clear();
 	}
+
+#ifdef IO_OPERATIONS
+	MSGPACK_DEFINE(suggestions, count);
+#endif
 };
+
+enum ItemType { NONE, DICT, INTEGER };
+
+#ifdef IO_OPERATIONS
+MSGPACK_ADD_ENUM(ItemType);
+#endif
 
 class dictionaryItemContainer
 {
@@ -60,10 +83,13 @@ public:
 	dictionaryItemContainer(void) {
 	}
 
-	enum type { NONE, DICT, INTEGER };
-	type itemType;
+	ItemType itemType;
 	size_t intValue;
 	std::shared_ptr<dictionaryItem> dictValue;
+
+#ifdef IO_OPERATIONS
+	MSGPACK_DEFINE(itemType, intValue, dictValue);
+#endif
 };
 
 class suggestItem
@@ -81,6 +107,10 @@ public:
 	size_t HastCode() {
 		return hash<string>()(term);
 	}
+
+#ifdef IO_OPERATIONS
+	MSGPACK_DEFINE(term, distance, count);
+#endif
 };
 
 class SymSpell {
@@ -120,6 +150,78 @@ public:
 		sr.close();
 	}
 
+#ifdef IO_OPERATIONS
+	
+	void Save(string filePath)
+	{
+		std::ofstream fileStream(filePath, ios::binary);
+
+		if (fileStream.good())
+		{
+#ifdef USE_GOOGLE_DENSE_HASH_MAP
+			std::map<size_t, dictionaryItemContainer> tmpDict(dictionary.begin(), dictionary.end());
+#endif
+
+			msgpack::packer<std::ofstream> packer(&fileStream);
+
+			packer.pack(this->verbose);
+			packer.pack(this->editDistanceMax);
+			packer.pack(this->maxlength);
+
+#ifdef USE_GOOGLE_DENSE_HASH_MAP
+			packer.pack(tmpDict);
+#else
+			packer.pack(dictionary);
+#endif
+			packer.pack(this->wordlist);
+		}
+
+		fileStream.close();
+	}
+
+	void Load(string filePath)
+	{
+		std::ifstream fileStream(filePath, ios::binary);
+
+		if (fileStream.good())
+		{
+			std::string str((std::istreambuf_iterator<char>(fileStream)), (std::istreambuf_iterator<char>()));
+
+			msgpack::unpacker packer;
+
+			packer.reserve_buffer(str.length());
+			memcpy(packer.buffer(), str.data(), str.length());
+			packer.buffer_consumed(str.length());
+
+			msgpack::object_handle handler;
+			packer.next(handler);
+			
+			handler.get().convert(this->verbose); 
+			packer.next(handler);
+
+			handler.get().convert(this->editDistanceMax);
+			packer.next(handler);
+			
+			handler.get().convert(this->maxlength); 
+			packer.next(handler);
+			
+#ifdef USE_GOOGLE_DENSE_HASH_MAP
+			std::map<size_t, dictionaryItemContainer> tmpDict;
+			handler.get().convert(tmpDict); 
+			this->dictionary.insert(tmpDict.begin(), tmpDict.end());
+#else
+			handler.get().convert(this->dictionary);
+#endif
+			packer.next(handler);
+			handler.get().convert(this->wordlist);
+		
+		}
+
+		fileStream.close();
+	}
+
+#endif
+
 	bool CreateDictionaryEntry(string key)
 	{
 		bool result = false;
@@ -131,9 +233,9 @@ public:
 		{
 			value = valueo->second;
 
-			if (valueo->second.itemType == dictionaryItemContainer::INTEGER)
+			if (valueo->second.itemType == ItemType::INTEGER)
 			{
-				value.itemType = dictionaryItemContainer::DICT;
+				value.itemType = ItemType::DICT;
 				value.dictValue = std::make_shared<dictionaryItem>();
 				value.dictValue->suggestions.push_back(valueo->second.intValue);
 			}
@@ -145,7 +247,7 @@ public:
 		}
 		else if (wordlist.size() < INT_MAX)
 		{
-			value.itemType = dictionaryItemContainer::DICT;
+			value.itemType = ItemType::DICT;
 			value.dictValue = std::make_shared<dictionaryItem>();
 			++(value.dictValue->count);
 			string mapKey = key;
@@ -163,7 +265,7 @@ public:
 
 			result = true;
 
-			auto deleted = set<string>();
+			auto deleted = CUSTOM_SET<string>();
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
 			deleted.set_empty_key("");
 #endif
@@ -175,9 +277,9 @@ public:
 				auto value2 = dictionary.find(getHastCode(del));
 				if (value2 != dictionaryEnd)
 				{
-					if (value2->second.itemType == dictionaryItemContainer::INTEGER)
+					if (value2->second.itemType == ItemType::INTEGER)
 					{
-						value2->second.itemType = dictionaryItemContainer::DICT;
+						value2->second.itemType = ItemType::DICT;
 						value2->second.dictValue = std::make_shared<dictionaryItem>();
 						value2->second.dictValue->suggestions.push_back(value2->second.intValue);
 						dictionary[getHastCode(del)].dictValue = value2->second.dictValue;
@@ -191,7 +293,7 @@ public:
 				else
 				{
 					dictionaryItemContainer tmp;
-					tmp.itemType = dictionaryItemContainer::INTEGER;
+					tmp.itemType = ItemType::INTEGER;
 					tmp.intValue = keyint;
 
 					dictionary.insert(pair<size_t, dictionaryItemContainer>(getHastCode(del), tmp));
@@ -227,11 +329,10 @@ public:
 
 	}
 
-
 private:
 	size_t maxlength = 0;
 	size_t editDistanceMax = 2;
-	map<size_t, dictionaryItemContainer> dictionary;
+	CUSTOM_MAP<size_t, dictionaryItemContainer> dictionary;
 	vector<string> wordlist;
 
 	static size_t getHastCode(const string & term)
@@ -266,7 +367,7 @@ private:
 	}
 
 
-	set<string> Edits(string word, size_t editDistance, set<string> & deletes)
+	CUSTOM_SET<string> Edits(string word, size_t editDistance, CUSTOM_SET<string> & deletes)
 	{
 		++editDistance;
 		if (word.size() > 1)
@@ -295,13 +396,13 @@ private:
 
 		vector<string> candidates;
 		candidates.reserve(VECTOR_RESERVED_SIZE);
-		set<size_t> hashset1;
+		CUSTOM_SET<size_t> hashset1;
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
 		hashset1.set_empty_key(0);
 #endif
 
 		vector<suggestItem> suggestions;
-		set<size_t> hashset2;
+		CUSTOM_SET<size_t> hashset2;
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
 		hashset2.set_empty_key(0);
 #endif
@@ -326,15 +427,15 @@ private:
 			//read candidate entry from dictionary
 			if (valueo != dictionaryEnd)
 			{
-				if (valueo->second.itemType == dictionaryItemContainer::INTEGER)
+				if (valueo->second.itemType == ItemType::INTEGER)
 				{
-					valueo->second.itemType = dictionaryItemContainer::DICT;
+					valueo->second.itemType = ItemType::DICT;
 					valueo->second.dictValue = std::make_shared<dictionaryItem>();
 					valueo->second.dictValue->suggestions.push_back(valueo->second.intValue);
 				}
 
 
-				if (valueo->second.itemType == dictionaryItemContainer::DICT && 
+				if (valueo->second.itemType == ItemType::DICT &&
 					valueo->second.dictValue->count > 0 && 
 					hashset2.insert(getHastCode(candidate)).second)
 				{
@@ -393,7 +494,7 @@ private:
 							{
 								suggestItem si;
 								si.term = suggestion;
-								if (value2->second.itemType == dictionaryItemContainer::DICT)
+								if (value2->second.itemType == ItemType::DICT)
 									si.count = value2->second.dictValue->count;
 								else 
 									si.count = 1;
