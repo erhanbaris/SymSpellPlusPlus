@@ -159,7 +159,7 @@ public:
 		if (fileStream.good())
 		{
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
-			std::map<size_t, dictionaryItemContainer> tmpDict(dictionary.begin(), dictionary.end());
+			std::unordered_map<size_t, dictionaryItemContainer> tmpDict(dictionary.begin(), dictionary.end()); // should be undered_map
 #endif
 
 			msgpack::packer<std::ofstream> packer(&fileStream);
@@ -206,8 +206,8 @@ public:
 			packer.next(handler);
 			
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
-			std::map<size_t, dictionaryItemContainer> tmpDict;
-			handler.get().convert(tmpDict); 
+			std::unordered_map<size_t, dictionaryItemContainer> tmpDict;
+			handler.get().convert(tmpDict);
 			this->dictionary.insert(tmpDict.begin(), tmpDict.end());
 #else
 			handler.get().convert(this->dictionary);
@@ -270,7 +270,7 @@ public:
 			deleted.set_empty_key("");
 #endif
 
-			Edits(key, 0, deleted);
+			Edits(key, deleted);
 
 			for (string del : deleted)
 			{
@@ -366,27 +366,52 @@ private:
 			item->suggestions.push_back(suggestionint);
 	}
 
-
-	CUSTOM_SET<string> Edits(string word, size_t editDistance, CUSTOM_SET<string> & deletes)
+	static char * copyAndDeleteChar(char const * str, int i)
 	{
-		++editDistance;
-		if (word.size() > 1)
-		{
-			for (size_t i = 0; i < word.size(); ++i)
-			{
-				string wordClone = word;
-				string del = wordClone.erase(i, 1);
-				if (!deletes.count(del))
-				{
-					deletes.insert(del);
+		char * returnValue = static_cast<char *>(malloc(strlen(str) + 1));
+		strcpy(returnValue, str);
 
-					if (editDistance < editDistanceMax)
-						Edits(del, editDistance, deletes);
+		int len = strlen(str);
+		for (; i < len - 1; i++)
+			returnValue[i] = str[i + 1];
+
+		returnValue[i] = '\0';
+		return returnValue;
+	}
+
+	void Edits(string word, CUSTOM_SET<string> & deletes) const
+	{
+		auto c = word.c_str();
+		CUSTOM_MAP<size_t, const char *> queue;
+		queue.set_empty_key(0);
+		queue.resize(1024);
+		queue.insert(pair<size_t, const char*>(getHastCode(word), word.c_str()));
+
+		for (size_t d = 0; d < editDistanceMax; ++d)
+		{
+			CUSTOM_MAP<size_t, const char *> tempQueue;
+			auto tempQueueEnd = tempQueue.end();
+			tempQueue.resize(1024);
+			tempQueue.set_empty_key(0);
+
+			for (auto item : queue) {
+				if (strlen(item.second)) {
+					for (size_t i = 0; i < strlen(item.second); ++i)
+					{
+						char* del = copyAndDeleteChar(item.second, i);
+						if (!deletes.count(del))
+							deletes.insert(del);
+
+						if (tempQueue.find(getHastCode(del)) == tempQueueEnd)
+						{
+							tempQueue.insert(pair<size_t, const char*>(getHastCode(del), del));
+							tempQueueEnd = tempQueue.end();
+						}
+					}
 				}
 			}
+			queue = tempQueue;
 		}
-
-		return deletes;
 	}
 
 	vector<suggestItem> Lookup(string input, size_t editDistanceMax)
