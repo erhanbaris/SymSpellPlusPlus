@@ -13,12 +13,9 @@
 #include <regex>
 #include <algorithm>
 #include <math.h>
-#include <algorithm>
-#include <ctime>
 #include <chrono>
 #include <fstream>
 #include <list>
-#include <sstream> 
 
 #ifdef IO_OPERATIONS
 #include <msgpack.hpp>
@@ -37,8 +34,6 @@
 #define CUSTOM_SET std::set
 #define CUSTOM_MAP std::map
 #endif
-
-#include <map>
 
 
 #define min(a, b)  (((a) < (b)) ? (a) : (b))
@@ -80,7 +75,8 @@ MSGPACK_ADD_ENUM(ItemType);
 class dictionaryItemContainer
 {
 public:
-	dictionaryItemContainer(void) {
+	dictionaryItemContainer(): itemType(NONE), intValue(0)
+	{
 	}
 
 	ItemType itemType;
@@ -96,15 +92,16 @@ class suggestItem
 {
 public:
 	string term;
-	size_t distance = 0;
-	size_t count;
+	unsigned short distance = 0;
+	unsigned short count;
 
 	bool operator== (const suggestItem & item) const
 	{
 		return term.compare(item.term) == 0;
 	}
 
-	size_t HastCode() {
+	size_t HastCode() const
+	{
 		return hash<string>()(term);
 	}
 
@@ -313,10 +310,10 @@ public:
         
         high_resolution_clock::time_point t1 = high_resolution_clock::now();
         
-        for (size_t i = 0; i < 100000; ++i)
-        {
-            suggestions = Lookup(input, editDistanceMax);
-        }
+		for (size_t i = 0; i < 100000; ++i)
+		{
+			Lookup(input, editDistanceMax);
+		}
         
         high_resolution_clock::time_point t2 = high_resolution_clock::now();
         duration<double> time_span = duration_cast<duration<double>>(t2 - t1);
@@ -366,22 +363,8 @@ private:
 			item->suggestions.push_back(suggestionint);
 	}
 
-	static char * copyAndDeleteChar(char const * str, int i)
-	{
-		char * returnValue = static_cast<char *>(malloc(strlen(str) + 1));
-		strcpy(returnValue, str);
-
-		int len = strlen(str);
-		for (; i < len - 1; i++)
-			returnValue[i] = str[i + 1];
-
-		returnValue[i] = '\0';
-		return returnValue;
-	}
-
 	void Edits(string word, CUSTOM_SET<string> & deletes) const
 	{
-		auto c = word.c_str();
 		CUSTOM_MAP<size_t, const char *> queue;
 		queue.set_empty_key(0);
 		queue.resize(1024);
@@ -398,7 +381,14 @@ private:
 				if (strlen(item.second)) {
 					for (size_t i = 0; i < strlen(item.second); ++i)
 					{
-						char* del = copyAndDeleteChar(item.second, i);
+						// For Performance ->
+						char* del = static_cast<char *>(malloc(strlen(item.second)));
+						int len = strlen(item.second);
+						for (; i < len - 1; i++)
+							del[i] = item.second[i + 1];
+						del[i] = '\0';
+						// <- For Performance
+
 						if (!deletes.count(del))
 							deletes.insert(del);
 
