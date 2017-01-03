@@ -1,7 +1,6 @@
 #pragma once
 
 #define USE_GOOGLE_DENSE_HASH_MAP
-#define VECTOR_RESERVED_SIZE 2048
 #define ENABLE_TEST
 #define IO_OPERATIONS
 
@@ -39,6 +38,8 @@
 #define min(a, b)  (((a) < (b)) ? (a) : (b))
 #define max(a, b)  (((a) > (b)) ? (a) : (b))
 
+#define getHastCode(term) hash<string>()(term)
+
 using namespace std;
 
 
@@ -75,7 +76,7 @@ MSGPACK_ADD_ENUM(ItemType);
 class dictionaryItemContainer
 {
 public:
-	dictionaryItemContainer(): itemType(NONE), intValue(0)
+	dictionaryItemContainer() : itemType(NONE), intValue(0)
 	{
 	}
 
@@ -113,6 +114,7 @@ public:
 class SymSpell {
 public:
 	size_t verbose = 0;
+	size_t editDistanceMax = 2;
 
 	SymSpell()
 	{
@@ -148,7 +150,7 @@ public:
 	}
 
 #ifdef IO_OPERATIONS
-	
+
 	void Save(string filePath)
 	{
 		std::ofstream fileStream(filePath, ios::binary);
@@ -192,16 +194,16 @@ public:
 
 			msgpack::object_handle handler;
 			packer.next(handler);
-			
-			handler.get().convert(this->verbose); 
+
+			handler.get().convert(this->verbose);
 			packer.next(handler);
 
 			handler.get().convert(this->editDistanceMax);
 			packer.next(handler);
-			
-			handler.get().convert(this->maxlength); 
+
+			handler.get().convert(this->maxlength);
 			packer.next(handler);
-			
+
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
 			std::unordered_map<size_t, dictionaryItemContainer> tmpDict;
 			handler.get().convert(tmpDict);
@@ -211,7 +213,7 @@ public:
 #endif
 			packer.next(handler);
 			handler.get().convert(this->wordlist);
-		
+
 		}
 
 		fileStream.close();
@@ -304,22 +306,22 @@ public:
 	vector<suggestItem> Correct(string input)
 	{
 		vector<suggestItem> suggestions;
-		
+
 #ifdef ENABLE_TEST
-        using namespace std::chrono;
-        
-        high_resolution_clock::time_point t1 = high_resolution_clock::now();
-        
+		using namespace std::chrono;
+
+		high_resolution_clock::time_point t1 = high_resolution_clock::now();
+
 		for (size_t i = 0; i < 100000; ++i)
 		{
 			Lookup(input, editDistanceMax);
 		}
-        
-        high_resolution_clock::time_point t2 = high_resolution_clock::now();
-        duration<double> time_span = duration_cast<duration<double>>(t2 - t1);
-        
-        std::cout << "It took me " << time_span.count() << " seconds.";
-        std::cout << std::endl;
+
+		high_resolution_clock::time_point t2 = high_resolution_clock::now();
+		duration<double> time_span = duration_cast<duration<double>>(t2 - t1);
+
+		std::cout << "It took me " << time_span.count() << " seconds.";
+		std::cout << std::endl;
 #endif
 		suggestions = Lookup(input, editDistanceMax);
 		return suggestions;
@@ -328,14 +330,8 @@ public:
 
 private:
 	size_t maxlength = 0;
-	size_t editDistanceMax = 2;
 	CUSTOM_MAP<size_t, dictionaryItemContainer> dictionary;
 	vector<string> wordlist;
-
-	static size_t getHastCode(const string & term)
-	{
-		return hash<string>()(term);
-	}
 
 	vector<string> parseWords(string text) const
 	{
@@ -366,16 +362,18 @@ private:
 	void Edits(string word, CUSTOM_SET<string> & deletes) const
 	{
 		CUSTOM_MAP<size_t, const char *> queue;
+#ifdef USE_GOOGLE_DENSE_HASH_MAP
 		queue.set_empty_key(0);
-		queue.resize(1024);
+#endif
 		queue.insert(pair<size_t, const char*>(getHastCode(word), word.c_str()));
 
 		for (size_t d = 0; d < editDistanceMax; ++d)
 		{
 			CUSTOM_MAP<size_t, const char *> tempQueue;
 			auto tempQueueEnd = tempQueue.end();
-			tempQueue.resize(1024);
+#ifdef USE_GOOGLE_DENSE_HASH_MAP
 			tempQueue.set_empty_key(0);
+#endif
 
 			for (auto item : queue) {
 				if (strlen(item.second)) {
@@ -383,10 +381,13 @@ private:
 					{
 						// For Performance ->
 						char* del = static_cast<char *>(malloc(strlen(item.second)));
+
+						strcpy(del, item.second);
+						size_t k = i;
 						int len = strlen(item.second);
-						for (; i < len - 1; i++)
-							del[i] = item.second[i + 1];
-						del[i] = '\0';
+						for (; k < len - 1; k++)
+							del[k] = item.second[k + 1];
+						del[k] = '\0';
 						// <- For Performance
 
 						if (!deletes.count(del))
@@ -410,7 +411,7 @@ private:
 			return vector<suggestItem>();
 
 		vector<string> candidates;
-		candidates.reserve(VECTOR_RESERVED_SIZE);
+		candidates.reserve(2048);
 		CUSTOM_SET<size_t> hashset1;
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
 		hashset1.set_empty_key(0);
@@ -451,7 +452,7 @@ private:
 
 
 				if (valueo->second.itemType == ItemType::DICT &&
-					valueo->second.dictValue->count > 0 && 
+					valueo->second.dictValue->count > 0 &&
 					hashset2.insert(getHastCode(candidate)).second)
 				{
 					//add correct dictionary term term to suggestion list
@@ -490,7 +491,7 @@ private:
 								if ((ii > 0) || (jj > 0))
 									distance = DamerauLevenshteinDistance(suggestion.substr(ii, suggestion.size() - ii - jj), input.substr(ii, input.size() - ii - jj));
 								else
-									distance = DamerauLevenshteinDistance(move(suggestion), move(input));
+									distance = DamerauLevenshteinDistance(suggestion, input);
 
 							}
 						}
@@ -511,7 +512,7 @@ private:
 								si.term = suggestion;
 								if (value2->second.itemType == ItemType::DICT)
 									si.count = value2->second.dictValue->count;
-								else 
+								else
 									si.count = 1;
 								si.distance = distance;
 								suggestions.push_back(si);
@@ -530,7 +531,7 @@ private:
 				for (size_t i = 0; i < candidateSize; ++i)
 				{
 					string wordClone = candidate;
-					string && del = move(wordClone.erase(i, 1));
+					string & del = wordClone.erase(i, 1);
 					if (hashset1.insert(getHastCode(del)).second)
 						candidates.push_back(del);
 				}
@@ -567,7 +568,7 @@ private:
 	};
 
 
-	static size_t DamerauLevenshteinDistance(const std::string &&s1, const std::string &&s2)
+	static size_t DamerauLevenshteinDistance(const std::string &s1, const std::string &s2)
 	{
 		const size_t m(s1.size());
 		const size_t n(s2.size());
