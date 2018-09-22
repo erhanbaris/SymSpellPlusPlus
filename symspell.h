@@ -1,10 +1,9 @@
 #pragma once
 
 #define USE_GOOGLE_DENSE_HASH_MAP
-#define ENABLE_TEST
-#define IO_OPERATIONS
 
 #undef ENABLE_TEST
+#undef USE_GOOGLE_DENSE_HASH_MAP
 
 #include <iostream>
 #include <string>
@@ -38,7 +37,7 @@
 #define min(a, b)  (((a) < (b)) ? (a) : (b))
 #define max(a, b)  (((a) > (b)) ? (a) : (b))
 
-#define getHastCode(term) hash<string>()(term)
+#define getHastCode(term) term
 
 using namespace std;
 
@@ -82,7 +81,7 @@ public:
 
 	ItemType itemType;
 	size_t intValue;
-	std::shared_ptr<dictionaryItem> dictValue;
+	dictionaryItem* dictValue;
 
 #ifdef IO_OPERATIONS
 	MSGPACK_DEFINE(itemType, intValue, dictValue);
@@ -120,11 +119,11 @@ public:
 	{
 		setlocale(LC_ALL, "");
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
-		dictionary.set_empty_key(0);
+		dictionary.set_empty_key("");
 #endif
 	}
 
-	void CreateDictionary(string corpus)
+        void CreateDictionary(string const & corpus)
 	{
 		std::ifstream sr(corpus);
 
@@ -140,7 +139,7 @@ public:
 
 		for (std::string line; std::getline(sr, line); ) {
 
-			for (const string & key : parseWords(line))
+			for (string & key : parseWords(line))
 			{
 				if (CreateDictionaryEntry(key)) ++wordCount;
 			}
@@ -158,7 +157,7 @@ public:
 		if (fileStream.good())
 		{
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
-			std::unordered_map<size_t, dictionaryItemContainer> tmpDict(dictionary.begin(), dictionary.end()); // should be undered_map
+			std::unordered_map<string, dictionaryItemContainer> tmpDict(dictionary.begin(), dictionary.end()); // should be undered_map
 #endif
 
 			msgpack::packer<std::ofstream> packer(&fileStream);
@@ -205,7 +204,7 @@ public:
 			packer.next(handler);
 
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
-			std::unordered_map<size_t, dictionaryItemContainer> tmpDict;
+			std::unordered_map<string, dictionaryItemContainer> tmpDict;
 			handler.get().convert(tmpDict);
 			this->dictionary.insert(tmpDict.begin(), tmpDict.end());
 #else
@@ -221,7 +220,7 @@ public:
 
 #endif
 
-	bool CreateDictionaryEntry(string key)
+        bool CreateDictionaryEntry(string const & key)
 	{
 		bool result = false;
 		dictionaryItemContainer value;
@@ -235,7 +234,7 @@ public:
 			if (valueo->second.itemType == ItemType::INTEGER)
 			{
 				value.itemType = ItemType::DICT;
-				value.dictValue = std::make_shared<dictionaryItem>();
+				value.dictValue = new dictionaryItem();
 				value.dictValue->suggestions.push_back(valueo->second.intValue);
 			}
 			else
@@ -247,10 +246,10 @@ public:
 		else if (wordlist.size() < INT_MAX)
 		{
 			value.itemType = ItemType::DICT;
-			value.dictValue = std::make_shared<dictionaryItem>();
+			value.dictValue = new dictionaryItem();
 			++(value.dictValue->count);
 			string mapKey = key;
-			dictionary.insert(pair<size_t, dictionaryItemContainer>(getHastCode(mapKey), value));
+			dictionary.insert(pair<string, dictionaryItemContainer>(getHastCode(mapKey), value));
 			dictionaryEnd = dictionary.end(); // for performance
 
 			if (key.size() > maxlength)
@@ -269,7 +268,8 @@ public:
 			deleted.set_empty_key("");
 #endif
 
-			Edits(key, deleted);
+                        std::string tmpKey = key;
+                        Edits(tmpKey, deleted);
 
 			for (string del : deleted)
 			{
@@ -279,15 +279,15 @@ public:
 					if (value2->second.itemType == ItemType::INTEGER)
 					{
 						value2->second.itemType = ItemType::DICT;
-						value2->second.dictValue = std::make_shared<dictionaryItem>();
+						value2->second.dictValue = new dictionaryItem();
 						value2->second.dictValue->suggestions.push_back(value2->second.intValue);
 						dictionary[getHastCode(del)].dictValue = value2->second.dictValue;
 
 						if (std::find(value2->second.dictValue->suggestions.begin(), value2->second.dictValue->suggestions.end(), keyint) == value2->second.dictValue->suggestions.end())
-							AddLowestDistance(value2->second.dictValue, key, keyint, del);
+                                                        AddLowestDistance(value2->second.dictValue, tmpKey, keyint, del);
 					}
 					else if (std::find(value2->second.dictValue->suggestions.begin(), value2->second.dictValue->suggestions.end(), keyint) == value2->second.dictValue->suggestions.end())
-						AddLowestDistance(value2->second.dictValue, key, keyint, del);
+                                                AddLowestDistance(value2->second.dictValue, tmpKey, keyint, del);
 				}
 				else
 				{
@@ -295,7 +295,7 @@ public:
 					tmp.itemType = ItemType::INTEGER;
 					tmp.intValue = keyint;
 
-					dictionary.insert(pair<size_t, dictionaryItemContainer>(getHastCode(del), tmp));
+					dictionary.insert(pair<string, dictionaryItemContainer>(getHastCode(del), tmp));
 					dictionaryEnd = dictionary.end();
 				}
 			}
@@ -303,10 +303,9 @@ public:
 		return result;
 	}
 
-	vector<suggestItem> Correct(string input)
+        void Correct(string const& input, vector<suggestItem> & suggestions)
 	{
-		vector<suggestItem> suggestions;
-
+		suggestions.clear();
 #ifdef ENABLE_TEST
 		using namespace std::chrono;
 
@@ -323,14 +322,12 @@ public:
 		std::cout << "It took me " << time_span.count() << " seconds.";
 		std::cout << std::endl;
 #endif
-		suggestions = Lookup(input, editDistanceMax);
-		return suggestions;
-
+		Lookup(input, editDistanceMax, suggestions);
 	}
 
 private:
 	size_t maxlength = 0;
-	CUSTOM_MAP<size_t, dictionaryItemContainer> dictionary;
+	CUSTOM_MAP<string, dictionaryItemContainer> dictionary;
 	vector<string> wordlist;
 
 	vector<string> parseWords(string text) const
@@ -350,42 +347,42 @@ private:
 		return returnData;
 	}
 
-	void AddLowestDistance(shared_ptr<dictionaryItem> const & item, string suggestion, size_t suggestionint, string del)
+	void AddLowestDistance(dictionaryItem * item, string suggestion, size_t suggestionint, string & del)
 	{
-		if ((verbose < 2) && (item->suggestions.size() > 0) && (wordlist[item->suggestions[0]].size() - del.size() > suggestion.size() - del.size()))
+		if ((verbose < 2) && (item->suggestions.size() > 0) && (wordlist.size() > item->suggestions[0] && wordlist[item->suggestions[0]].size() - del.size() > suggestion.size() - del.size()))
 			item->suggestions.clear();
 
-		if ((verbose == 2) || (item->suggestions.size() == 0) || (wordlist[item->suggestions[0]].size() - del.size() >= suggestion.size() - del.size()))
+		if ((verbose == 2) || (item->suggestions.size() == 0) || (wordlist.size() > item->suggestions[0] && wordlist[item->suggestions[0]].size() - del.size() >= suggestion.size() - del.size()))
 			item->suggestions.push_back(suggestionint);
 	}
 
-	void Edits(string word, CUSTOM_SET<string> & deletes) const
+	void Edits(string & word, CUSTOM_SET<string> & deletes) const
 	{
-		CUSTOM_MAP<size_t, const char *> queue;
+		CUSTOM_MAP<string, const char *> queue;
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
-		queue.set_empty_key(0);
+		queue.set_empty_key("");
 #endif
-		queue.insert(pair<size_t, const char*>(getHastCode(word), word.c_str()));
+		queue.insert(pair<string, const char*>(getHastCode(word), word.c_str()));
 
 		for (size_t d = 0; d < editDistanceMax; ++d)
 		{
-			CUSTOM_MAP<size_t, const char *> tempQueue;
+			CUSTOM_MAP<string, const char *> tempQueue;
 			auto tempQueueEnd = tempQueue.end();
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
-			tempQueue.set_empty_key(0);
+			tempQueue.set_empty_key("");
 #endif
-
 			for (auto item : queue) {
-				if (strlen(item.second)) {
-					for (size_t i = 0; i < strlen(item.second); ++i)
+				auto itemLen = strlen(item.second);
+
+				if (itemLen > 1) {
+					for (size_t i = 0; i < itemLen; ++i)
 					{
 						// For Performance ->
-						char* del = static_cast<char *>(malloc(strlen(item.second)));
+						char* del = new char[itemLen];
 
 						strcpy(del, item.second);
 						size_t k = i;
-						int len = strlen(item.second);
-						for (; k < len - 1; k++)
+						for (; k < itemLen - 1; k++)
 							del[k] = item.second[k + 1];
 						del[k] = '\0';
 						// <- For Performance
@@ -395,32 +392,32 @@ private:
 
 						if (tempQueue.find(getHastCode(del)) == tempQueueEnd)
 						{
-							tempQueue.insert(pair<size_t, const char*>(getHastCode(del), del));
+							tempQueue.insert(pair<string, const char*>(getHastCode(del), del));
 							tempQueueEnd = tempQueue.end();
 						}
 					}
 				}
 			}
-			queue = tempQueue;
+			std::swap(queue, tempQueue);
 		}
 	}
 
-	vector<suggestItem> Lookup(string input, size_t editDistanceMax)
+        void Lookup(string const& input, size_t editDistanceMax, vector<suggestItem> & suggestions)
 	{
+		suggestions.clear();
 		if (input.size() - editDistanceMax > maxlength)
-			return vector<suggestItem>();
+			return;
 
 		vector<string> candidates;
 		candidates.reserve(2048);
-		CUSTOM_SET<size_t> hashset1;
+		CUSTOM_SET<string> hashset1;
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
-		hashset1.set_empty_key(0);
+		hashset1.set_empty_key("");
 #endif
 
-		vector<suggestItem> suggestions;
-		CUSTOM_SET<size_t> hashset2;
+		CUSTOM_SET<string> hashset2;
 #ifdef USE_GOOGLE_DENSE_HASH_MAP
-		hashset2.set_empty_key(0);
+		hashset2.set_empty_key("");
 #endif
 
 		//object valueo;
@@ -432,13 +429,14 @@ private:
 		while ((candidates.size() - candidatesIndexer) > 0)
 		{
 			string candidate = candidates[candidatesIndexer];
+			auto candidateHash = getHastCode(candidate);
 			size_t candidateSize = candidate.size(); // for performance
 			++candidatesIndexer;
 
 			if ((verbose < 2) && (suggestions.size() > 0) && (input.size() - candidateSize > suggestions[0].distance))
 				goto sort;
 
-			auto valueo = dictionary.find(getHastCode(candidate));
+			auto valueo = dictionary.find(candidateHash);
 
 			//read candidate entry from dictionary
 			if (valueo != dictionaryEnd)
@@ -446,14 +444,14 @@ private:
 				if (valueo->second.itemType == ItemType::INTEGER)
 				{
 					valueo->second.itemType = ItemType::DICT;
-					valueo->second.dictValue = std::make_shared<dictionaryItem>();
+					valueo->second.dictValue = new dictionaryItem();
 					valueo->second.dictValue->suggestions.push_back(valueo->second.intValue);
 				}
 
 
 				if (valueo->second.itemType == ItemType::DICT &&
 					valueo->second.dictValue->count > 0 &&
-					hashset2.insert(getHastCode(candidate)).second)
+					hashset2.insert(candidateHash).second)
 				{
 					//add correct dictionary term term to suggestion list
 					suggestItem si;
@@ -472,7 +470,8 @@ private:
 					//skipping double items early: different deletes of the input term can lead to the same suggestion
 					//index2word
 					string suggestion = wordlist[suggestionint];
-					if (hashset2.insert(getHastCode(suggestion)).second)
+					auto suggestionHash = getHastCode(suggestion);
+					if (hashset2.insert(suggestionHash).second)
 					{
 						size_t distance = 0;
 						if (suggestion != input)
@@ -504,7 +503,7 @@ private:
 
 						if (distance <= editDistanceMax)
 						{
-							auto value2 = dictionary.find(getHastCode(suggestion));
+							auto value2 = dictionary.find(suggestionHash);
 
 							if (value2 != dictionaryEnd)
 							{
@@ -546,9 +545,12 @@ private:
 			sort(suggestions.begin(), suggestions.end(), Xgreater2());
 
 		if ((verbose == 0) && (suggestions.size() > 1))
-			return vector<suggestItem>(suggestions.begin(), suggestions.begin() + 1);
+		{
+			suggestions.erase(suggestions.begin() + 1, suggestions.end());
+			return;
+		}
 		else
-			return suggestions;
+			return;
 	}
 
 	struct Xgreater1
