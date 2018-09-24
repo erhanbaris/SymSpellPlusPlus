@@ -39,10 +39,12 @@
 #include <vector>
 #include <functional>
 #include <string>
+#include <cstring>
 #include <exception>
 #include <limits>
 #include <stdio.h>
 #include <algorithm>
+#include <queue>
 
 using namespace std;
 
@@ -53,6 +55,16 @@ namespace symspell {
 #define defaultInitialCapacity 16
 #define defaultCompactLevel 5
 
+#ifdef _MSC_VER
+    typedef __int8 int8_t;
+    typedef unsigned __int8 u_int8_t;
+
+    typedef __int32 int32_t;
+    typedef unsigned __int32 u_int32_t;
+
+    typedef __int64 int64_t;
+    typedef unsigned __int64 u_int64_t;
+#endif
 
     /*
  * Copied from https://github.com/PierreBoyeau/levenshtein_distance
@@ -478,7 +490,8 @@ namespace symspell {
                 //edits/suggestions are created only once, no matter how often word occurs
                 //edits/suggestions are created only as soon as the word occurs in the corpus,
                 //even if the same term existed before in the dictionary as an edit from another word
-                if (key.size() > maxDictionaryWordLength) maxDictionaryWordLength = key.size();
+                if (key.size() > maxDictionaryWordLength)
+                    maxDictionaryWordLength = key.size();
 
                 //create deletes
                 unordered_set<string> edits;
@@ -530,24 +543,43 @@ namespace symspell {
                 Edits(key, 0, hashSet);
             }
 
-            void Edits(string const& word, int32_t editDistance, unordered_set<string> & deleteWords)
+            void Edits(string const& searchWord, int32_t editDistance, unordered_set<string> & deleteWords)
             {
-                ++editDistance;
-                size_t wordLen = word.size();
-                if (wordLen > 1)
-                {
-                    for (size_t i = 0; i < wordLen; ++i)
-                    {
-                        string tmp;
-                        tmp.reserve(wordLen - 1);
-                        tmp.append(word.substr(0, i));
-                        tmp.append(word.substr(i + 1));
+                unordered_set<string>::const_iterator deleteWordsEnd = deleteWords.cend();
+                queue<string> wordQueue;
+                wordQueue.push(searchWord);
 
-                        if (deleteWords.insert(tmp).second)
+                while (!wordQueue.empty())
+                {
+                    auto word = wordQueue.front();
+                    wordQueue.pop();
+                    size_t wordLen = word.size();
+
+                    ++editDistance;
+                    if (wordLen > 1)
+                    {
+                        for (size_t i = 0; i < wordLen; ++i)
                         {
-                            //recursion, if maximum edit distance not yet reached
-                            if (editDistance < maxDictionaryEditDistance)
-                                Edits(tmp, editDistance, deleteWords);
+                            char* tmp = new char[wordLen];
+                            std::memcpy(tmp, word.c_str(), i);
+                            std::memcpy(tmp + i, word.c_str() + i + 1, wordLen - 1 - i);
+                            tmp[wordLen - 1] = '\0';
+
+                            if (deleteWords.find(tmp) == deleteWordsEnd)
+                            {
+                                deleteWords.insert(tmp);
+                                deleteWordsEnd = deleteWords.cend();
+                                //recursion, if maximum edit distance not yet reached
+                                if (editDistance < maxDictionaryEditDistance)
+                                {
+                                    //Edits(tmp, editDistance, deleteWords);
+                                    wordQueue.push(tmp);
+                                }
+
+                                //std::cout << tmp << std::endl;
+                            }
+
+                            delete[] tmp;
                         }
                     }
                 }
@@ -602,12 +634,13 @@ namespace symspell {
                 // used to construct the underlying dictionary structure.
                 if (maxEditDistance > MaxDictionaryEditDistance())  throw std::invalid_argument("maxEditDistance");
                 long suggestionCount = 0;
+                size_t suggestionsLen = suggestions.size();
                 auto wordsFinded = words.find(input);
                 int inputLen = input.size();
                 // early exit - word is too big to possibly match any words
                 if (inputLen - maxEditDistance > maxDictionaryWordLength)
                 {
-                    if (includeUnknown && (suggestions.size() == 0))
+                    if (includeUnknown && (suggestionsLen == 0))
                         suggestions.push_back(new SuggestItem(input, maxEditDistance + 1, 0));
 
                     return;
@@ -619,11 +652,15 @@ namespace symspell {
                 {
                     suggestionCount = wordsFinded->second;
                     suggestions.push_back(new SuggestItem(input, 0, suggestionCount));
+                    suggestionsLen = suggestions.size();
                     // early exit - return exact match, unless caller wants all matches
                     if (verbosity != Verbosity::All)
                     {
-                        if (includeUnknown && (suggestions.size() == 0))
+                        if (includeUnknown && (suggestionsLen == 0))
+                        {
                             suggestions.push_back(new SuggestItem(input, maxEditDistance + 1, 0));
+                            suggestionsLen = suggestions.size();
+                        }
 
                         return;
                     }
@@ -632,8 +669,11 @@ namespace symspell {
                 //early termination, if we only want to check if word in dictionary or get its frequency e.g. for word segmentation
                 if (maxEditDistance == 0)
                 {
-                    if (includeUnknown && (suggestions.size() == 0))
+                    if (includeUnknown && (suggestionsLen == 0))
+                    {
                         suggestions.push_back(new SuggestItem(input, maxEditDistance + 1, 0));
+                        suggestionsLen = suggestions.size();
+                    }
 
                     return;
                 }
@@ -648,6 +688,7 @@ namespace symspell {
                 int maxEditDistance2 = maxEditDistance;
                 int candidatePointer = 0;
                 vector<string> candidates;
+                candidates.reserve(32);
 
                 //add original prefix
                 int inputPrefixLen = inputLen;
@@ -660,9 +701,10 @@ namespace symspell {
                 {
                     candidates.push_back(input);
                 }
-
+                
+                size_t candidatesLen = candidates.size();
                 EditDistance* distanceComparer = new EditDistance(this->distanceAlgorithm);
-                while (candidatePointer < candidates.size())
+                while (candidatePointer < candidatesLen)
                 {
                     string candidate = candidates[candidatePointer++];
                     int candidateLen = candidate.size();
@@ -687,7 +729,7 @@ namespace symspell {
                         dictSuggestions = &deletesFinded->second;
                         size_t dictSuggestionsLen = dictSuggestions->size();
                         //iterate through suggestions (to other correct dictionary items) of delete item and add them to suggestion list
-                        for (int i = 0; i < dictSuggestionsLen; i++)
+                        for (int i = 0; i < dictSuggestionsLen; ++i)
                         {
                             string suggestion = dictSuggestions->at(i);
                             int suggestionLen = suggestion.size();
@@ -747,14 +789,18 @@ namespace symspell {
                             {
                                 suggestionCount = words[suggestion];
                                 SuggestItem* si = new SuggestItem(suggestion, distance, suggestionCount);
-                                if (suggestions.size() > 0)
+                                if (suggestionsLen > 0)
                                 {
                                     switch (verbosity)
                                     {
                                         case Verbosity::Closest:
                                         {
                                             //we will calculate DamLev distance only to the smallest found distance so far
-                                            if (distance < maxEditDistance2) suggestions.clear();
+                                            if (distance < maxEditDistance2)
+                                            {
+                                                suggestions.clear();
+                                                suggestionsLen = suggestions.size();
+                                            }
                                             break;
                                         }
                                         case Verbosity::Top:
@@ -766,10 +812,15 @@ namespace symspell {
                                             }
                                             continue;
                                         }
+                                        case Verbosity::All:
+                                        {
+                                            break;
+                                        }
                                     }
                                 }
                                 if (verbosity != Verbosity::All) maxEditDistance2 = distance;
                                 suggestions.push_back(si);
+                                suggestionsLen = suggestions.size();
                             }
                         }//end foreach
                     }//end if
@@ -785,19 +836,29 @@ namespace symspell {
 
                         for (int i = 0; i < candidateLen; i++)
                         {
-                            string tmp;
-                            tmp.reserve(candidateLen - 1);
-                            tmp.append(candidate.substr(0, i));
-                            tmp.append(candidate.substr(i + 1));
+                            char* tmp = new char[candidateLen];
+                            std::memcpy(tmp, candidate.c_str(), i);
+                            std::memcpy(tmp + i, candidate.c_str() + i + 1, candidateLen - 1 - i);
+                            tmp[candidateLen - 1] = '\0';
 
-                            if (hashset1.insert(tmp).second) { candidates.push_back(tmp); }
+                            if (hashset1.insert(tmp).second)
+                            {
+                                candidates.push_back(tmp);
+                                candidatesLen = candidates.size();
+                            }
+                            else
+                                delete[] tmp;
                         }
                     }
                 }//end while
 
                 //sort by ascending edit distance, then by descending word frequency
-                if (suggestions.size() > 1)
+                if (suggestionsLen > 1)
                     std::sort (suggestions.begin(), suggestions.end());
+                
+                
+                //cleaning
+                delete distanceComparer;
 
             }//end if
 
@@ -826,7 +887,7 @@ namespace symspell {
             int64_t countThreshold; //a treshold might be specifid, when a term occurs so frequently in the corpus that it is considered a valid word for spelling correction
             uint32_t compactMask;
             EditDistance::DistanceAlgorithm distanceAlgorithm = EditDistance::DistanceAlgorithm::DamerauOSA;
-            int32_t maxDictionaryWordLength; //maximum dictionary term length
+            size_t maxDictionaryWordLength; //maximum dictionary term length
 
             // Dictionary that contains a mapping of lists of suggested correction words to the hashCodes
             // of the original words and the deletes derived from them. Collisions of hashCodes is tolerated,
