@@ -1,31 +1,31 @@
 /*
  *
-    NOT FINISHED YET
-    NOT TESTED YET
+        NOT FINISHED YET
+        NOT TESTED YET
 
-    DO NOT USE THIS HEADER FILE UNTIL THIS MESSAGE REMOVED.
+        DO NOT USE THIS HEADER FILE UNTIL THIS MESSAGE REMOVED.
 
 
-    Sample Code:
-    symspell::SymSpell symSpell;
-    symSpell.CreateDictionaryEntry("erhan", 1);
-    symSpell.CreateDictionaryEntry("orhan", 2);
-    symSpell.CreateDictionaryEntry("ayhan", 3);
-    vector<symspell::SuggestItem*> items;
-    symSpell.Lookup("ozhan", symspell::Verbosity::Top, items);
-    std::cout << "Count : " << items.size() << std::endl;
-    if (items.size() > 0)
-    {
-        auto itemsEnd = items.cend();
+        Sample Code:
+        symspell::SymSpell symSpell;
+        symSpell.CreateDictionaryEntry("erhan", 1);
+        symSpell.CreateDictionaryEntry("orhan", 2);
+        symSpell.CreateDictionaryEntry("ayhan", 3);
+        vector<symspell::SuggestItem*> items;
+        symSpell.Lookup("ozhan", symspell::Verbosity::Top, items);
+        std::cout << "Count : " << items.size() << std::endl;
+        if (items.size() > 0)
+        {
+                auto itemsEnd = items.cend();
 
-        for(auto it = items.cbegin(); it != itemsEnd; ++it)
-            std::cout << "Item : '" << (*it)->term << "' Count : " << std::to_string((*it)->count) << " Distance : " << std::to_string((*it)->distance) << std::endl;
-    }
+                for(auto it = items.cbegin(); it != itemsEnd; ++it)
+                        std::cout << "Item : '" << (*it)->term << "' Count : " << std::to_string((*it)->count) << " Distance : " << std::to_string((*it)->distance) << std::endl;
+        }
 
-    Todo List:
-    1- Change std::string to char*
-    2- Change levenshtein functions
-    3- Improve performance
+        Todo List:
+        1- Change std::string to char*
+        2- Change levenshtein functions
+        3- Improve performance
  *
  */
 
@@ -33,9 +33,9 @@
 #ifndef SYMSPELL6_H
 #define SYMSPELL6_H
 
+#define SPP_USE_SPP_ALLOC 1
+
 #include <stdint.h>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include <functional>
 #include <string>
@@ -45,8 +45,12 @@
 #include <stdio.h>
 #include <algorithm>
 #include <queue>
+#include "sparsepp/spp.h"
 
 using namespace std;
+using spp::sparse_hash_map;
+using spp::sparse_hash_set;
+
 
 namespace symspell {
 #define defaultMaxEditDistance 2
@@ -66,13 +70,30 @@ namespace symspell {
     typedef unsigned __int64 u_int64_t;
 #endif
 
+    namespace {
+        int32_t findCharLocation(const char * text, char ch)
+        {
+            const char* finded = strchr(text, ch);
+            if (finded == nullptr)
+                return -1;
+
+            return finded - text + 1;
+        }
+    }
+
+    struct comp_c_string {
+            bool operator()(const char *s1, const char *s2) const {
+                return strcmp(s1, s2) == 0;
+            }
+    };
+
     struct hash_c_string {
-            void hash_combine(size_t& seed, char const& v)
+            void hash_combine(size_t& seed, const char& v)
             {
                 seed ^= v + 0x9e3779b9 + (seed << 6) + (seed >> 2);
             }
 
-            std::size_t operator() (char const* p) const
+            std::size_t operator() (const char* p) const
             {
                 size_t hash = 0;
                 for (; *p; ++p)
@@ -81,22 +102,22 @@ namespace symspell {
             }
     };
 
-    struct comp_c_string {
-            bool operator()(char const* p1, char const* p2) const
-            {
-                return strcmp(p1,p2) == 0;
-            }
-    };
-
+    /*struct comp_c_string {
+                bool operator()(const char* p1, const char * p2) const
+                {
+                        return strcmp(p1, p2) == 0;
+                }
+        };
+        */
     /*
  * Copied from https://github.com/PierreBoyeau/levenshtein_distance
  * ########## BEGIN ##########
  */
-    int mini(int a, int b, int c){
-        return(min(a, min(b,c)));
+    int mini(int a, int b, int c) {
+        return(min(a, min(b, c)));
     }
 
-    int levenshtein_dist(char const* word1, char const* word2){
+    int levenshtein_dist(char const* word1, char const* word2) {
         ///
         ///  Please use lower-case strings
         /// word1 : first word
@@ -106,31 +127,31 @@ namespace symspell {
         ///
         int size1 = strlen(word1), size2 = strlen(word2);
         int suppr_dist, insert_dist, subs_dist;
-        int* dist = new int[(size1+1)*(size2+1)];
+        int* dist = new int[(size1 + 1)*(size2 + 1)];
 
-        for(int i=0; i<size1+1; ++i)
-            dist[(size2+1)*i] = i;
-        for(int j=0; j<size2+1; ++j)
+        for (int i = 0; i < size1 + 1; ++i)
+            dist[(size2 + 1)*i] = i;
+        for (int j = 0; j < size2 + 1; ++j)
             dist[j] = j;
-        for(int i=1; i<size1+1; ++i){
-            for(int j=1; j<size2+1; ++j){
-                suppr_dist = dist[(size2+1)*(i-1)+j] + 1;
-                insert_dist = dist[(size2+1)*i+j-1] + 1;
-                subs_dist = dist[(size2+1)*(i-1)+j-1];
-                if(word1[i-1]!=word2[j-1]){  // word indexes are implemented differently.
+        for (int i = 1; i < size1 + 1; ++i) {
+            for (int j = 1; j < size2 + 1; ++j) {
+                suppr_dist = dist[(size2 + 1)*(i - 1) + j] + 1;
+                insert_dist = dist[(size2 + 1)*i + j - 1] + 1;
+                subs_dist = dist[(size2 + 1)*(i - 1) + j - 1];
+                if (word1[i - 1] != word2[j - 1]) {  // word indexes are implemented differently.
                     subs_dist += 1;
                 }
-                dist[(size2+1)*i+j] = mini(suppr_dist, insert_dist, subs_dist);
+                dist[(size2 + 1)*i + j] = mini(suppr_dist, insert_dist, subs_dist);
             }
         }
 
         // --------------------------------------------------------
-        int res = dist[(size1+1)*(size2+1) - 1];
+        int res = dist[(size1 + 1)*(size2 + 1) - 1];
         delete dist;
         return(res);
     }
 
-    int dl_dist(char const* word1, char const* word2){
+    int dl_dist(char const* word1, char const* word2) {
         /// Damerau-Levenshtein distance
         ///  Please use lower-case strings
         /// word1 : first word
@@ -138,34 +159,34 @@ namespace symspell {
         ///
         int size1 = strlen(word1), size2 = strlen(word2);
         int suppr_dist, insert_dist, subs_dist, val;
-        int* dist = new int[(size1+1)*(size2+1)];
+        int* dist = new int[(size1 + 1)*(size2 + 1)];
 
-        for(int i=0; i<size1+1; ++i)
-            dist[(size2+1)*i] = i;
-        for(int j=0; j<size2+1; ++j)
+        for (int i = 0; i < size1 + 1; ++i)
+            dist[(size2 + 1)*i] = i;
+        for (int j = 0; j < size2 + 1; ++j)
             dist[j] = j;
-        for(int i=1; i<size1+1; ++i){
-            for(int j=1; j<size2+1; ++j){
-                suppr_dist = dist[(size2+1)*(i-1)+j] + 1;
-                insert_dist = dist[(size2+1)*i+j-1] + 1;
-                subs_dist = dist[(size2+1)*(i-1)+j-1];
-                if(word1[i-1]!=word2[j-1])  // word indexes are implemented differently.
+        for (int i = 1; i < size1 + 1; ++i) {
+            for (int j = 1; j < size2 + 1; ++j) {
+                suppr_dist = dist[(size2 + 1)*(i - 1) + j] + 1;
+                insert_dist = dist[(size2 + 1)*i + j - 1] + 1;
+                subs_dist = dist[(size2 + 1)*(i - 1) + j - 1];
+                if (word1[i - 1] != word2[j - 1])  // word indexes are implemented differently.
                     subs_dist += 1;
                 val = mini(suppr_dist, insert_dist, subs_dist);
-                if(((i>=2) && (j>=2)) && ((word1[i-1]==word2[j-2]) && (word1[i-2]==word2[j-1])))
-                    val = min(dist[(size2+1)*(i-2)+j-2]+1, val);
-                dist[(size2+1)*i+j] = val;
+                if (((i >= 2) && (j >= 2)) && ((word1[i - 1] == word2[j - 2]) && (word1[i - 2] == word2[j - 1])))
+                    val = min(dist[(size2 + 1)*(i - 2) + j - 2] + 1, val);
+                dist[(size2 + 1)*i + j] = val;
             }
         }
 
-        int res = dist[(size1+1)*(size2+1) - 1];
+        int res = dist[(size1 + 1)*(size2 + 1) - 1];
         delete dist;
         return(res);
     }
 
     /*
-     * ########## END ##########
-     */
+         * ########## END ##########
+         */
 
     class SuggestionStage;
     template<typename T> class ChunkArray;
@@ -207,21 +228,21 @@ namespace symspell {
 
         private:
             DistanceAlgorithm algorithm;
-            std::function<int(char const*, char const*)>distanceComparer;
+            int (*distanceComparer)(char const*, char const*);
     };
 
     class SuggestItem
     {
         public:
             /// <summary>The suggested correctly spelled word.</summary>
-            char* term;
+            const char* term;
             /// <summary>Edit distance between searched for word and suggestion.</summary>
             u_int8_t distance = 0;
             /// <summary>Frequency of suggestion in the dictionary (a measure of how common the word is).</summary>
             int64_t count = 0;
 
             SuggestItem() { }
-            SuggestItem(char* term, int32_t distance, int64_t count)
+            SuggestItem(const char* term, int32_t distance, int64_t count)
             {
                 this->term = term;
                 this->distance = distance;
@@ -259,7 +280,7 @@ namespace symspell {
 
             std::size_t GetHashCode()
             {
-                return std::hash<char*>{}(term);
+                return std::hash<const char*>{}(term);
             }
 
             SuggestItem& ShallowCopy()
@@ -306,7 +327,7 @@ namespace symspell {
                     Values = newValues;
                 }
                 Values[Row(Count)][Col(Count)] = value;
-                Count++;
+                ++Count;
                 return Count - 1;
             }
 
@@ -340,8 +361,8 @@ namespace symspell {
             class Node;
             class Entry;
 
-            unordered_map<uint32_t, Entry*> Deletes;
-            unordered_map<uint32_t, Entry*>::const_iterator DeletesEnd;
+            sparse_hash_map<uint32_t, Entry*> Deletes;
+            sparse_hash_map<uint32_t, Entry*>::const_iterator DeletesEnd;
 
             ChunkArray<Node> Nodes;
             SuggestionStage(size_t initialCapacity)
@@ -359,7 +380,7 @@ namespace symspell {
                 DeletesEnd = Deletes.cend();
             }
 
-            void Add(int deleteHash, char* suggestion)
+            void Add(int deleteHash, const char* suggestion)
             {
                 auto deletesFinded = Deletes.find(deleteHash);
                 Entry* entry = nullptr;
@@ -381,19 +402,19 @@ namespace symspell {
                 Nodes.Add(item);
             }
 
-            void CommitTo(unordered_map<int32_t, vector<char*>, hash_c_string, comp_c_string> & permanentDeletes)
+            void CommitTo(sparse_hash_map<int32_t, vector<const char*>> & permanentDeletes)
             {
                 auto permanentDeletesEnd = permanentDeletes.cend();
-                for(auto it = Deletes.cbegin(); it != DeletesEnd; ++it)
+                for (auto it = Deletes.cbegin(); it != DeletesEnd; ++it)
                 {
                     auto permanentDeletesFinded = permanentDeletes.find(it->first);
-                    vector<char*>* suggestions = nullptr;
+                    vector<const char*>* suggestions = nullptr;
                     size_t i;
                     if (permanentDeletesFinded != permanentDeletesEnd)
                     {
                         suggestions = &permanentDeletesFinded->second;
                         i = suggestions->size();
-                        vector<char*> newSuggestions;
+                        vector<const char*> newSuggestions;
                         newSuggestions.reserve(suggestions->size() + it->second->count);
 
                         std::copy(suggestions->begin(), suggestions->end(), back_inserter(newSuggestions));
@@ -402,7 +423,7 @@ namespace symspell {
                     else
                     {
                         i = 0;
-                        suggestions = new vector<char*>;
+                        suggestions = new vector<const char*>;
                         suggestions->reserve(it->second->count);
                         permanentDeletes[it->first] = *suggestions;
                     }
@@ -422,7 +443,7 @@ namespace symspell {
             class Node
             {
                 public:
-                    char* suggestion;
+                    const char* suggestion;
                     int32_t next;
             };
 
@@ -452,13 +473,13 @@ namespace symspell {
                 this->prefixLength = prefixLength;
                 this->countThreshold = countThreshold;
                 if (compactLevel > 16) compactLevel = 16;
-                this->compactMask = (std::numeric_limits<uint32_t>::max() >> (3 + compactLevel)) << 2;
+                this->compactMask = ((std::numeric_limits<uint32_t>::max)() >> (3 + compactLevel)) << 2;
                 this->deletesEnd = this->deletes.cend();
                 this->wordsEnd = this->words.cend();
                 this->belowThresholdWordsEnd = this->belowThresholdWords.cend();
             }
 
-            bool CreateDictionaryEntry(char * key, int64_t count, SuggestionStage * staging = nullptr)
+            bool CreateDictionaryEntry(const char * key, int64_t count, SuggestionStage * staging = nullptr)
             {
                 if (count <= 0)
                 {
@@ -476,7 +497,7 @@ namespace symspell {
                 {
                     countPrevious = belowThresholdWordsFinded->second;
                     // calculate new count for below threshold word
-                    count = (std::numeric_limits<int64_t>::max() - countPrevious > count) ? countPrevious + count : std::numeric_limits<int64_t>::max();
+                    count = ((std::numeric_limits<int64_t>::max)() - countPrevious > count) ? countPrevious + count : (std::numeric_limits<int64_t>::max)();
                     // has reached threshold - remove from below threshold collection (it will be added to correct words below)
                     if (count >= countThreshold)
                     {
@@ -494,7 +515,7 @@ namespace symspell {
                 {
                     countPrevious = wordsFinded->second;
                     // just update count if it's an already added above threshold word
-                    count = (std::numeric_limits<int64_t>::max() - countPrevious > count) ? countPrevious + count : std::numeric_limits<int64_t>::max();
+                    count = ((std::numeric_limits<int64_t>::max)() - countPrevious > count) ? countPrevious + count : (std::numeric_limits<int64_t>::max)();
                     words[key] = count;
                     return false;
                 }
@@ -516,14 +537,14 @@ namespace symspell {
                     maxDictionaryWordLength = strlen(key);
 
                 //create deletes
-                unordered_set<char*, hash_c_string, comp_c_string> edits;
+                sparse_hash_set<const char*, hash_c_string, comp_c_string> edits;
                 EditsPrefix(key, edits);
                 // if not staging suggestions, put directly into main data structure
                 if (staging != nullptr)
                 {
                     auto editsEnd = edits.cend();
 
-                    for(auto it = edits.cbegin(); it != editsEnd; ++it)
+                    for (auto it = edits.cbegin(); it != editsEnd; ++it)
                     {
                         staging->Add(this->GetStringHash(*it), key);
                     }
@@ -531,81 +552,120 @@ namespace symspell {
                 else
                 {
                     auto editsEnd = edits.cend();
-                    for(auto it = edits.cbegin(); it != editsEnd; ++it)
+                    for (auto it = edits.cbegin(); it != editsEnd; ++it)
                     {
                         int deleteHash = this->GetStringHash(*it);
                         auto deletesFinded = deletes.find(deleteHash);
-                        vector<char*>* suggestions;
+                        vector<const char*>* suggestions;
                         if (deletesFinded != deletesEnd)
                         {
                             suggestions = &deletesFinded->second;
-                            vector<char*> newSuggestions;
+                            vector<const char*> newSuggestions;
                             newSuggestions.reserve(suggestions->size() + 1);
                             copy(suggestions->begin(), suggestions->end(), back_inserter(newSuggestions));
-                            deletes[deleteHash] = *suggestions = newSuggestions;
+                            deletes[deleteHash] = *suggestions = newSuggestions; // todo: FIX not good!!!
+                            deletes[deleteHash][suggestions->size() - 1] = key;
                             deletesEnd = deletes.cend();
                         }
                         else
                         {
-                            suggestions = new vector<char*>;
+                            suggestions = new vector<const char*>;
                             suggestions->resize(1);
-                            deletes[deleteHash] = *suggestions;
+                            deletes[deleteHash] = *suggestions; // todo: FIX not good!!!
+                            deletes[deleteHash][suggestions->size() - 1] = key;
+                            deletesEnd = deletes.cend();
                         }
-                        (*suggestions)[suggestions->size() - 1] = key;
                     }
                 }
                 return true;
             }
 
-            void EditsPrefix(char* key, unordered_set<char*, hash_c_string, comp_c_string>& hashSet)
+            void EditsPrefix(const char* key, sparse_hash_set<const char *, hash_c_string, comp_c_string>& hashSet)
             {
+                size_t len = strlen(key);
+                char* tmp = nullptr;
                 if (strlen(key) <= maxDictionaryEditDistance) hashSet.insert("");
-                if (strlen(key) > prefixLength) key = key.substr(0, prefixLength);
+                if (strlen(key) > prefixLength)
+                {
+                    tmp = new char[prefixLength + 1];
+                    std::memcpy(tmp, key, prefixLength);
+                    tmp[prefixLength] = '\0';
+                }
+                else
+                {
+                    tmp = new char[len + 1];
+                    std::memcpy(tmp, key, len);
+                    tmp[len] = '\0';
+                }
+
                 hashSet.insert(key);
                 Edits(key, 0, hashSet);
             }
 
-            void Edits(char * searchWord, int32_t editDistance, unordered_set<char*, hash_c_string, comp_c_string> & deleteWords)
+            void Edits(const char * word, int32_t editDistance, sparse_hash_set<const char *, hash_c_string, comp_c_string> & deleteWords)
             {
-                unordered_set<char*, hash_c_string, comp_c_string>::const_iterator deleteWordsEnd = deleteWords.cend();
-                queue<char*> wordQueue;
-                wordQueue.push(searchWord);
-
-                while (!wordQueue.empty())
+                ++editDistance;
+                size_t wordLen = strlen(word);
+                if (wordLen > 1)
                 {
-                    auto word = wordQueue.front();
-                    wordQueue.pop();
-                    size_t wordLen = strlen(word);
-
-                    ++editDistance;
-                    if (wordLen > 1)
+                    for (size_t i = 0; i < wordLen; ++i)
                     {
-                        for (size_t i = 0; i < wordLen; ++i)
+                        char* tmp = new char[wordLen];
+                        std::memcpy(tmp, word, i);
+                        std::memcpy(tmp + i, word + i + 1, wordLen - 1 - i);
+                        tmp[wordLen - 1] = '\0';
+
+                        if (deleteWords.insert(tmp).second)
                         {
-                            char* tmp = new char[wordLen];
-                            std::memcpy(tmp, word, i);
-                            std::memcpy(tmp + i, word + i + 1, wordLen - 1 - i);
-                            tmp[wordLen - 1] = '\0';
-
-                            if (deleteWords.find(tmp) == deleteWordsEnd)
-                            {
-                                deleteWords.insert(tmp);
-                                deleteWordsEnd = deleteWords.cend();
-                                //recursion, if maximum edit distance not yet reached
-                                if (editDistance < maxDictionaryEditDistance)
-                                {
-                                    //Edits(tmp, editDistance, deleteWords);
-                                    wordQueue.push(tmp);
-                                }
-
-                                //std::cout << tmp << std::endl;
-                            }
-
-                            delete[] tmp;
+                            //recursion, if maximum edit distance not yet reached
+                            if (editDistance < maxDictionaryEditDistance)
+                                Edits(tmp, editDistance, deleteWords);
                         }
                     }
                 }
             }
+
+            /*void Edits(const char * searchWord, int32_t editDistance, sparse_hash_set<const char *, hash_c_string, comp_c_string> & deleteWords)
+                {
+                        sparse_hash_set<const char *, hash_c_string, comp_c_string>::const_iterator deleteWordsEnd = deleteWords.cend();
+                        queue<const char*> wordQueue;
+                        wordQueue.push(searchWord);
+
+                        while (!wordQueue.empty())
+                        {
+                                auto word = wordQueue.front();
+                                wordQueue.pop();
+                                size_t wordLen = strlen(word);
+
+                                ++editDistance;
+                                if (wordLen > 1)
+                                {
+                                        for (size_t i = 0; i < wordLen; ++i)
+                                        {
+                                                char* tmp = new char[wordLen];
+                                                std::memcpy(tmp, word, i);
+                                                std::memcpy(tmp + i, word + i + 1, wordLen - 1 - i);
+                                                tmp[wordLen - 1] = '\0';
+
+                                                if (deleteWords.find(tmp) == deleteWordsEnd)
+                                                {
+                                                        deleteWords.insert(tmp);
+                                                        deleteWordsEnd = deleteWords.cend();
+                                                        //recursion, if maximum edit distance not yet reached
+                                                        if (editDistance < maxDictionaryEditDistance)
+                                                        {
+                                                                //Edits(tmp, editDistance, deleteWords);
+                                                                wordQueue.push(tmp);
+                                                        }
+
+                                                        //std::cout << tmp << std::endl;
+                                                }
+
+                                                delete[] tmp;
+                                        }
+                                }
+                        }
+                }*/
 
             int GetStringHash(char const* s)
             {
@@ -636,17 +696,17 @@ namespace symspell {
                 staging.CommitTo(deletes);
             }
 
-            void Lookup(char * input, Verbosity verbosity, vector<SuggestItem*> & items)
+            void Lookup(const char * input, Verbosity verbosity, vector<SuggestItem*> & items)
             {
                 this->Lookup(input, verbosity, this->maxDictionaryEditDistance, false, items);
             }
 
-            void Lookup(char * input, Verbosity verbosity, int32_t maxEditDistance, vector<SuggestItem*> & items)
+            void Lookup(const char * input, Verbosity verbosity, int32_t maxEditDistance, vector<SuggestItem*> & items)
             {
                 this->Lookup(input, verbosity, maxEditDistance, false, items);
             }
 
-            void Lookup(char * input, Verbosity verbosity, int32_t maxEditDistance, bool includeUnknown, vector<SuggestItem*> & suggestions)
+            void Lookup(const char * input, Verbosity verbosity, int32_t maxEditDistance, bool includeUnknown, vector<SuggestItem*> & suggestions)
             {
                 //verbosity=Top: the suggestion with the highest term frequency of the suggestions of smallest edit distance found
                 //verbosity=Closest: all suggestions of smallest edit distance found, the suggestions are ordered by term frequency
@@ -674,14 +734,14 @@ namespace symspell {
                 {
                     suggestionCount = wordsFinded->second;
                     suggestions.push_back(new SuggestItem(input, 0, suggestionCount));
-                    suggestionsLen = suggestions.size();
+                    ++suggestionsLen;
                     // early exit - return exact match, unless caller wants all matches
                     if (verbosity != Verbosity::All)
                     {
                         if (includeUnknown && (suggestionsLen == 0))
                         {
                             suggestions.push_back(new SuggestItem(input, maxEditDistance + 1, 0));
-                            suggestionsLen = suggestions.size();
+                            ++suggestionsLen;
                         }
 
                         return;
@@ -694,22 +754,22 @@ namespace symspell {
                     if (includeUnknown && (suggestionsLen == 0))
                     {
                         suggestions.push_back(new SuggestItem(input, maxEditDistance + 1, 0));
-                        suggestionsLen = suggestions.size();
+                        ++suggestionsLen;
                     }
 
                     return;
                 }
 
                 // deletes we've considered already
-                unordered_set<char*, hash_c_string, comp_c_string> hashset1;
+                sparse_hash_set<const char*, hash_c_string, comp_c_string> hashset1;
                 // suggestions we've considered already
-                unordered_set<char*, hash_c_string, comp_c_string> hashset2;
+                sparse_hash_set<const char*, hash_c_string, comp_c_string> hashset2;
                 // we considered the input already in the word.TryGetValue above
                 hashset2.insert(input);
 
                 int maxEditDistance2 = maxEditDistance;
                 int candidatePointer = 0;
-                vector<char*> candidates;
+                vector<const char*> candidates;
                 candidates.reserve(32);
 
                 //add original prefix
@@ -727,12 +787,12 @@ namespace symspell {
                 {
                     candidates.push_back(input);
                 }
-                
+
                 size_t candidatesLen = candidates.size();
                 EditDistance* distanceComparer = new EditDistance(this->distanceAlgorithm);
                 while (candidatePointer < candidatesLen)
                 {
-                    char* candidate = candidates[candidatePointer++];
+                    const char* candidate = candidates[candidatePointer++];
                     int candidateLen = strlen(candidate);
                     int lengthDiff = inputPrefixLen - candidateLen;
 
@@ -747,7 +807,7 @@ namespace symspell {
                     }
 
                     auto deletesFinded = deletes.find(GetStringHash(candidate));
-                    vector<char*>* dictSuggestions = nullptr;
+                    vector<const char*>* dictSuggestions = nullptr;
 
                     //read candidate entry from dictionary
                     if (deletesFinded != deletesEnd)
@@ -757,9 +817,9 @@ namespace symspell {
                         //iterate through suggestions (to other correct dictionary items) of delete item and add them to suggestion list
                         for (int i = 0; i < dictSuggestionsLen; ++i)
                         {
-                            char* suggestion = dictSuggestions->at(i);
+                            const char* suggestion = dictSuggestions->at(i);
                             int suggestionLen = strlen(suggestion);
-                            if (suggestion == input) continue;
+                            if (strcmp(suggestion, input) == 0) continue;
                             if ((abs(suggestionLen - inputLen) > maxEditDistance2) // input and sugg lengths diff > allowed/current best distance
                                     || (suggestionLen < candidateLen) // sugg must be for a different delete string, in same bin only because of hash collision
                                     || (suggestionLen == candidateLen && suggestion != candidate)) // if sugg len = delete len, then it either equals delete or is in same bin only because of hash collision
@@ -784,7 +844,7 @@ namespace symspell {
                             }
                             else if (suggestionLen == 1)
                             {
-                                if (input.find(suggestion[0]) < 0) distance = inputLen; else distance = inputLen - 1;
+                                if (findCharLocation(input, suggestion[0]) < 0) distance = inputLen; else distance = inputLen - 1;
                                 if (distance > maxEditDistance2 || !hashset2.insert(suggestion).second) continue;
                             }
                             else
@@ -792,8 +852,8 @@ namespace symspell {
                                 //, then editdistance>maxEditDistance and no need for Levenshtein calculation
                                 //      (inputLen >= prefixLength) && (suggestionLen >= prefixLength)
                                 if ((prefixLength - maxEditDistance == candidateLen)
-                                        && (((_min = std::min(inputLen, suggestionLen) - prefixLength) > 1)
-                                            && (input.substr(inputLen + 1 - _min) != suggestion.substr(suggestionLen + 1 - _min)))
+                                        && (((_min = min(inputLen, suggestionLen) - prefixLength) > 1)
+                                            && (std::strncmp(input, suggestion, max(inputLen + 1 - _min, suggestionLen + 1 - _min)) != 0) /*(input.substr(inputLen + 1 - _min) != suggestion.substr(suggestionLen + 1 - _min))*/)
                                         || ((_min > 0) && (input[inputLen - _min] != suggestion[suggestionLen - _min])
                                             && ((input[inputLen - _min - 1] != suggestion[suggestionLen - _min])
                                                 || (input[inputLen - _min] != suggestion[suggestionLen - _min - 1]))))
@@ -825,7 +885,7 @@ namespace symspell {
                                             if (distance < maxEditDistance2)
                                             {
                                                 suggestions.clear();
-                                                suggestionsLen = suggestions.size();
+                                                suggestionsLen = 0;
                                             }
                                             break;
                                         }
@@ -846,7 +906,7 @@ namespace symspell {
                                 }
                                 if (verbosity != Verbosity::All) maxEditDistance2 = distance;
                                 suggestions.push_back(si);
-                                suggestionsLen = suggestions.size();
+                                ++suggestionsLen;
                             }
                         }//end foreach
                     }//end if
@@ -860,7 +920,7 @@ namespace symspell {
                         //do not create edits with edit distance smaller than suggestions already found
                         if (verbosity != Verbosity::All && lengthDiff >= maxEditDistance2) continue;
 
-                        for (int i = 0; i < candidateLen; i++)
+                        for (int i = 0; i < candidateLen; ++i)
                         {
                             char* tmp = new char[candidateLen];
                             std::memcpy(tmp, candidate, i);
@@ -870,7 +930,7 @@ namespace symspell {
                             if (hashset1.insert(tmp).second)
                             {
                                 candidates.push_back(tmp);
-                                candidatesLen = candidates.size();
+                                ++candidatesLen;
                             }
                             else
                                 delete[] tmp;
@@ -880,9 +940,9 @@ namespace symspell {
 
                 //sort by ascending edit distance, then by descending word frequency
                 if (suggestionsLen > 1)
-                    std::sort (suggestions.begin(), suggestions.end());
-                
-                
+                    std::sort(suggestions.begin(), suggestions.end());
+
+
                 //cleaning
                 delete distanceComparer;
 
@@ -898,10 +958,10 @@ namespace symspell {
             size_t MaxLength() { return this->maxDictionaryWordLength; }
 
             /// <summary>Count threshold for a word to be considered a valid word for spelling correction.</summary>
-            int64_t CountThreshold()  { return this->countThreshold; }
+            int64_t CountThreshold() { return this->countThreshold; }
 
             /// <summary>Number of unique words in the dictionary.</summary>
-            size_t WordCount()  { return this->words.size(); }
+            size_t WordCount() { return this->words.size(); }
 
             /// <summary>Number of word prefixes and intermediate word deletes encoded in the dictionary.</summary>
             size_t EntryCount() { return this->deletes.size(); }
@@ -919,26 +979,26 @@ namespace symspell {
             // of the original words and the deletes derived from them. Collisions of hashCodes is tolerated,
             // because suggestions are ultimately verified via an edit distance function.
             // A list of suggestions might have a single suggestion, or multiple suggestions.
-            unordered_map<int32_t, vector<char*>, hash_c_string, comp_c_string> deletes;
-            unordered_map<int32_t, vector<char*>, hash_c_string, comp_c_string>::const_iterator deletesEnd;
+            sparse_hash_map<int32_t, vector<const char*>> deletes;
+            sparse_hash_map<int32_t, vector<const char*>>::const_iterator deletesEnd;
 
             // Dictionary of unique correct spelling words, and the frequency count for each word.
-            unordered_map<const char*, int64_t, hash_c_string, comp_c_string> words;
-            unordered_map<const char*, int64_t, hash_c_string, comp_c_string>::const_iterator wordsEnd;
+            sparse_hash_map<const char*, int64_t, hash_c_string, comp_c_string> words;
+            sparse_hash_map<const char*, int64_t, hash_c_string, comp_c_string>::const_iterator wordsEnd;
 
             // Dictionary of unique words that are below the count threshold for being considered correct spellings.
-            unordered_map<const char*, int64_t, hash_c_string, comp_c_string> belowThresholdWords;
-            unordered_map<const char*, int64_t, hash_c_string, comp_c_string>::const_iterator belowThresholdWordsEnd;
+            sparse_hash_map<const char*, int64_t, hash_c_string, comp_c_string> belowThresholdWords;
+            sparse_hash_map<const char*, int64_t, hash_c_string, comp_c_string>::const_iterator belowThresholdWordsEnd;
 
             bool DeleteInSuggestionPrefix(char const* del, int deleteLen, char const* suggestion, int suggestionLen)
             {
                 if (deleteLen == 0) return true;
                 if (prefixLength < suggestionLen) suggestionLen = prefixLength;
                 int j = 0;
-                for (int i = 0; i < deleteLen; i++)
+                for (int i = 0; i < deleteLen; ++i)
                 {
                     char delChar = del[i];
-                    while (j < suggestionLen && delChar != suggestion[j]) j++;
+                    while (j < suggestionLen && delChar != suggestion[j]) ++j;
                     if (j == suggestionLen) return false;
                 }
                 return true;
