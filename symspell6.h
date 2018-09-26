@@ -5,7 +5,6 @@
 
         DO NOT USE THIS HEADER FILE UNTIL THIS MESSAGE REMOVED.
 
-
         Sample Code:
         symspell::SymSpell symSpell;
         symSpell.CreateDictionaryEntry("erhan", 1);
@@ -16,9 +15,9 @@
         std::cout << "Count : " << items.size() << std::endl;
         if (items.size() > 0)
         {
-                auto itemsEnd = items.cend();
+                auto itemsEnd = items.end();
 
-                for(auto it = items.cbegin(); it != itemsEnd; ++it)
+                for(auto it = items.begin(); it != itemsEnd; ++it)
                         std::cout << "Item : '" << (*it)->term << "' Count : " << std::to_string((*it)->count) << " Distance : " << std::to_string((*it)->distance) << std::endl;
         }
 
@@ -29,11 +28,9 @@
  *
  */
 
-
 #ifndef SYMSPELL6_H
 #define SYMSPELL6_H
 
-#define SPP_USE_SPP_ALLOC 1
 
 #include <stdint.h>
 #include <vector>
@@ -45,12 +42,25 @@
 #include <stdio.h>
 #include <algorithm>
 #include <queue>
-#include "sparsepp/spp.h"
+
+#define USE_GOOGLE_HASH_MAP
+
+#ifdef USE_GOOGLE_HASH_MAP
+#   include <sparsehash/dense_hash_map>
+#   include <sparsehash/dense_hash_set>
+
+#   define CUSTOM_MAP dense_hash_map
+#   define CUSTOM_SET dense_hash_set
+    using google::dense_hash_map;
+    using google::dense_hash_set;
+#else
+#   define CUSTOM_MAP unordered_map
+#   define CUSTOM_SET unordered_set
+#   include <unordered_map>
+#   include <unordered_set>
+#endif
 
 using namespace std;
-using spp::sparse_hash_map;
-using spp::sparse_hash_set;
-
 
 namespace symspell {
 #define defaultMaxEditDistance 2
@@ -87,20 +97,6 @@ namespace symspell {
             }
     };
 
-    struct hash_c_string {
-            void hash_combine(size_t& seed, const char& v)
-            {
-                seed ^= v + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-            }
-
-            std::size_t operator() (const char* p) const
-            {
-                size_t hash = 0;
-                for (; *p; ++p)
-                    hash ^= *p + 0x9e3779b9 + (hash << 6) + (hash >> 2);
-                return hash;
-            }
-    };
 
     /*struct comp_c_string {
                 bool operator()(const char* p1, const char * p2) const
@@ -354,20 +350,24 @@ namespace symspell {
             int32_t Capacity() { return Values.size() * ChunkSize; }
     };
 
-
     class SuggestionStage
     {
         public:
             class Node;
             class Entry;
 
-            sparse_hash_map<uint32_t, Entry*> Deletes;
-            sparse_hash_map<uint32_t, Entry*>::const_iterator DeletesEnd;
+            CUSTOM_MAP<uint32_t, Entry*> Deletes;
+            CUSTOM_MAP<uint32_t, Entry*>::iterator DeletesEnd;
 
             ChunkArray<Node> Nodes;
             SuggestionStage(size_t initialCapacity)
             {
+#ifdef USE_GOOGLE_HASH_MAP
+                Deletes.set_empty_key(0);
+                Deletes.resize(initialCapacity);
+#else
                 Deletes.reserve(initialCapacity);
+#endif
                 Nodes.Reserve(initialCapacity * 2);
             }
             size_t DeleteCount() { return Deletes.size(); }
@@ -377,7 +377,7 @@ namespace symspell {
                 Deletes.clear();
                 Nodes.Clear();
 
-                DeletesEnd = Deletes.cend();
+                DeletesEnd = Deletes.end();
             }
 
             void Add(int deleteHash, const char* suggestion)
@@ -402,10 +402,10 @@ namespace symspell {
                 Nodes.Add(item);
             }
 
-            void CommitTo(sparse_hash_map<int32_t, vector<const char*>> & permanentDeletes)
+            void CommitTo(CUSTOM_MAP<int32_t, vector<const char*>> & permanentDeletes)
             {
-                auto permanentDeletesEnd = permanentDeletes.cend();
-                for (auto it = Deletes.cbegin(); it != DeletesEnd; ++it)
+                auto permanentDeletesEnd = permanentDeletes.end();
+                for (auto it = Deletes.begin(); it != DeletesEnd; ++it)
                 {
                     auto permanentDeletesFinded = permanentDeletes.find(it->first);
                     vector<const char*>* suggestions = nullptr;
@@ -455,7 +455,6 @@ namespace symspell {
             };
     };
 
-
     class SymSpell {
         public:
             SymSpell(int32_t initialCapacity = defaultInitialCapacity, int32_t maxDictionaryEditDistance = defaultMaxEditDistance, int32_t prefixLength = defaultPrefixLength, int32_t countThreshold = defaultCountThreshold, int32_t compactLevel = defaultCompactLevel)
@@ -465,18 +464,26 @@ namespace symspell {
                 if (prefixLength < 1 || prefixLength <= maxDictionaryEditDistance) throw std::invalid_argument("prefixLength");
                 if (countThreshold < 0) throw std::invalid_argument("countThreshold");
                 if (compactLevel > 16) throw std::invalid_argument("compactLevel");
-
+#ifdef USE_GOOGLE_HASH_MAP
+                this->words.set_empty_key("");
+                this->deletes.set_empty_key(0);
+#endif
                 this->initialCapacity = initialCapacity;
+#ifdef USE_GOOGLE_HASH_MAP
+                this->words.resize(initialCapacity);
+                this->deletes.resize(initialCapacity);
+#else
                 this->words.reserve(initialCapacity);
                 this->deletes.reserve(initialCapacity);
+#endif
                 this->maxDictionaryEditDistance = maxDictionaryEditDistance;
                 this->prefixLength = prefixLength;
                 this->countThreshold = countThreshold;
                 if (compactLevel > 16) compactLevel = 16;
                 this->compactMask = ((std::numeric_limits<uint32_t>::max)() >> (3 + compactLevel)) << 2;
-                this->deletesEnd = this->deletes.cend();
-                this->wordsEnd = this->words.cend();
-                this->belowThresholdWordsEnd = this->belowThresholdWords.cend();
+                this->deletesEnd = this->deletes.end();
+                this->wordsEnd = this->words.end();
+                this->belowThresholdWordsEnd = this->belowThresholdWords.end();
             }
 
             bool CreateDictionaryEntry(const char * key, int64_t count, SuggestionStage * staging = nullptr)
@@ -502,12 +509,12 @@ namespace symspell {
                     if (count >= countThreshold)
                     {
                         belowThresholdWords.erase(key);
-                        belowThresholdWordsEnd = belowThresholdWords.cend();
+                        belowThresholdWordsEnd = belowThresholdWords.end();
                     }
                     else
                     {
                         belowThresholdWords[key] = count;
-                        belowThresholdWordsEnd = belowThresholdWords.cend();
+                        belowThresholdWordsEnd = belowThresholdWords.end();
                         return false;
                     }
                 }
@@ -523,7 +530,7 @@ namespace symspell {
                 {
                     // new or existing below threshold word
                     belowThresholdWords[key] = count;
-                    belowThresholdWordsEnd = belowThresholdWords.cend();
+                    belowThresholdWordsEnd = belowThresholdWords.end();
                     return false;
                 }
 
@@ -537,22 +544,25 @@ namespace symspell {
                     maxDictionaryWordLength = strlen(key);
 
                 //create deletes
-                sparse_hash_set<const char*, hash_c_string, comp_c_string> edits;
+                CUSTOM_SET<const char*, hash<const char*>, comp_c_string> edits;
+                #ifdef USE_GOOGLE_HASH_MAP
+                edits.set_empty_key("");
+#endif
                 EditsPrefix(key, edits);
                 // if not staging suggestions, put directly into main data structure
                 if (staging != nullptr)
                 {
-                    auto editsEnd = edits.cend();
+                    auto editsEnd = edits.end();
 
-                    for (auto it = edits.cbegin(); it != editsEnd; ++it)
+                    for (auto it = edits.begin(); it != editsEnd; ++it)
                     {
                         staging->Add(this->GetStringHash(*it), key);
                     }
                 }
                 else
                 {
-                    auto editsEnd = edits.cend();
-                    for (auto it = edits.cbegin(); it != editsEnd; ++it)
+                    auto editsEnd = edits.end();
+                    for (auto it = edits.begin(); it != editsEnd; ++it)
                     {
                         int deleteHash = this->GetStringHash(*it);
                         auto deletesFinded = deletes.find(deleteHash);
@@ -565,7 +575,7 @@ namespace symspell {
                             copy(suggestions->begin(), suggestions->end(), back_inserter(newSuggestions));
                             deletes[deleteHash] = *suggestions = newSuggestions; // todo: FIX not good!!!
                             deletes[deleteHash][suggestions->size() - 1] = key;
-                            deletesEnd = deletes.cend();
+                            deletesEnd = deletes.end();
                         }
                         else
                         {
@@ -573,14 +583,14 @@ namespace symspell {
                             suggestions->resize(1);
                             deletes[deleteHash] = *suggestions; // todo: FIX not good!!!
                             deletes[deleteHash][suggestions->size() - 1] = key;
-                            deletesEnd = deletes.cend();
+                            deletesEnd = deletes.end();
                         }
                     }
                 }
                 return true;
             }
 
-            void EditsPrefix(const char* key, sparse_hash_set<const char *, hash_c_string, comp_c_string>& hashSet)
+            void EditsPrefix(const char* key, CUSTOM_SET<const char *, hash<const char*>, comp_c_string>& hashSet)
             {
                 size_t len = strlen(key);
                 char* tmp = nullptr;
@@ -602,7 +612,7 @@ namespace symspell {
                 Edits(key, 0, hashSet);
             }
 
-            void Edits(const char * word, int32_t editDistance, sparse_hash_set<const char *, hash_c_string, comp_c_string> & deleteWords)
+            void Edits(const char * word, int32_t editDistance, CUSTOM_SET<const char *, hash<const char*>, comp_c_string> & deleteWords)
             {
                 ++editDistance;
                 size_t wordLen = strlen(word);
@@ -625,9 +635,9 @@ namespace symspell {
                 }
             }
 
-            /*void Edits(const char * searchWord, int32_t editDistance, sparse_hash_set<const char *, hash_c_string, comp_c_string> & deleteWords)
+            /*void Edits(const char * searchWord, int32_t editDistance, sparse_hash_set<const char *, hash<const char*>, comp_c_string> & deleteWords)
                 {
-                        sparse_hash_set<const char *, hash_c_string, comp_c_string>::const_iterator deleteWordsEnd = deleteWords.cend();
+                        sparse_hash_set<const char *, hash<const char*>, comp_c_string>::const_iterator deleteWordsEnd = deleteWords.end();
                         queue<const char*> wordQueue;
                         wordQueue.push(searchWord);
 
@@ -650,7 +660,7 @@ namespace symspell {
                                                 if (deleteWords.find(tmp) == deleteWordsEnd)
                                                 {
                                                         deleteWords.insert(tmp);
-                                                        deleteWordsEnd = deleteWords.cend();
+                                                        deleteWordsEnd = deleteWords.end();
                                                         //recursion, if maximum edit distance not yet reached
                                                         if (editDistance < maxDictionaryEditDistance)
                                                         {
@@ -688,7 +698,7 @@ namespace symspell {
             void PurgeBelowThresholdWords()
             {
                 belowThresholdWords.clear();
-                belowThresholdWordsEnd = belowThresholdWords.cend();
+                belowThresholdWordsEnd = belowThresholdWords.end();
             }
 
             void CommitStaged(SuggestionStage staging)
@@ -761,9 +771,15 @@ namespace symspell {
                 }
 
                 // deletes we've considered already
-                sparse_hash_set<const char*, hash_c_string, comp_c_string> hashset1;
+                CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset1;
+                auto hashset1End = hashset1.end();
                 // suggestions we've considered already
-                sparse_hash_set<const char*, hash_c_string, comp_c_string> hashset2;
+                CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset2;
+
+#ifdef USE_GOOGLE_HASH_MAP
+                hashset1.set_empty_key("");
+                hashset2.set_empty_key("");
+#endif
                 // we considered the input already in the word.TryGetValue above
                 hashset2.insert(input);
 
@@ -927,8 +943,10 @@ namespace symspell {
                             std::memcpy(tmp + i, candidate + i + 1, candidateLen - 1 - i);
                             tmp[candidateLen - 1] = '\0';
 
-                            if (hashset1.insert(tmp).second)
+                            if (hashset1.find(tmp) == hashset1End)
                             {
+                                hashset1.insert(tmp);
+                                hashset1End = hashset1.end();
                                 candidates.push_back(tmp);
                                 ++candidatesLen;
                             }
@@ -941,7 +959,6 @@ namespace symspell {
                 //sort by ascending edit distance, then by descending word frequency
                 if (suggestionsLen > 1)
                     std::sort(suggestions.begin(), suggestions.end());
-
 
                 //cleaning
                 delete distanceComparer;
@@ -979,16 +996,16 @@ namespace symspell {
             // of the original words and the deletes derived from them. Collisions of hashCodes is tolerated,
             // because suggestions are ultimately verified via an edit distance function.
             // A list of suggestions might have a single suggestion, or multiple suggestions.
-            sparse_hash_map<int32_t, vector<const char*>> deletes;
-            sparse_hash_map<int32_t, vector<const char*>>::const_iterator deletesEnd;
+            CUSTOM_MAP<int32_t, vector<const char*>> deletes;
+            CUSTOM_MAP<int32_t, vector<const char*>>::iterator deletesEnd;
 
             // Dictionary of unique correct spelling words, and the frequency count for each word.
-            sparse_hash_map<const char*, int64_t, hash_c_string, comp_c_string> words;
-            sparse_hash_map<const char*, int64_t, hash_c_string, comp_c_string>::const_iterator wordsEnd;
+            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string> words;
+            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string>::iterator wordsEnd;
 
             // Dictionary of unique words that are below the count threshold for being considered correct spellings.
-            sparse_hash_map<const char*, int64_t, hash_c_string, comp_c_string> belowThresholdWords;
-            sparse_hash_map<const char*, int64_t, hash_c_string, comp_c_string>::const_iterator belowThresholdWordsEnd;
+            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string> belowThresholdWords;
+            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string>::iterator belowThresholdWordsEnd;
 
             bool DeleteInSuggestionPrefix(char const* del, int deleteLen, char const* suggestion, int suggestionLen)
             {
