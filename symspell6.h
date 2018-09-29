@@ -47,19 +47,23 @@
 #include <algorithm>
 #include <queue>
 #include <mutex>
+#include <tuple>
+#include <iostream>
+#include <fstream>
+#include <sstream>
 
 #define _SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS 1
 
 #ifdef _MSC_VER
 #   include <windows/port.h>
-    typedef __int8 int8_t;
-    typedef unsigned __int8 u_int8_t;
+typedef __int8 int8_t;
+typedef unsigned __int8 u_int8_t;
 
-    typedef __int32 int32_t;
-    typedef unsigned __int32 u_int32_t;
+typedef __int32 int32_t;
+typedef unsigned __int32 u_int32_t;
 
-    typedef __int64 int64_t;
-    typedef unsigned __int64 u_int64_t;
+typedef __int64 int64_t;
+typedef unsigned __int64 u_int64_t;
 #else
 #   define _strdup strdup
 #endif
@@ -70,8 +74,8 @@
 
 #   define CUSTOM_MAP dense_hash_map
 #   define CUSTOM_SET dense_hash_set
-    using google::dense_hash_map;
-    using google::dense_hash_set;
+using google::dense_hash_map;
+using google::dense_hash_set;
 #else
 #   define CUSTOM_MAP unordered_map
 #   define CUSTOM_SET unordered_set
@@ -109,15 +113,15 @@ namespace symspell {
     struct hash_c_string {
             void hash_combine(size_t& seed, const char& v)
             {
-                    seed ^= v + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+                seed ^= v + 0x9e3779b9 + (seed << 6) + (seed >> 2);
             }
 
             std::size_t operator() (const char* p) const
             {
-                    size_t hash = 0;
-                    for (; *p; ++p)
-                            hash ^= *p + 0x9e3779b9 + (hash << 6) + (hash >> 2);
-                    return hash;
+                size_t hash = 0;
+                for (; *p; ++p)
+                    hash ^= *p + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+                return hash;
             }
     };
 
@@ -332,6 +336,7 @@ namespace symspell {
             {
                 if (Count == Capacity())
                 {
+                    //todo: FIX not working yet
                     vector<vector<T>> newValues;
                     newValues.reserve(Values.size() + 1);
 
@@ -374,8 +379,8 @@ namespace symspell {
             class Node;
             class Entry;
 
-            CUSTOM_MAP<uint32_t, Entry*> Deletes;
-            CUSTOM_MAP<uint32_t, Entry*>::iterator DeletesEnd;
+            CUSTOM_MAP<size_t, Entry*> Deletes;
+            CUSTOM_MAP<size_t, Entry*>::iterator DeletesEnd;
 
             ChunkArray<Node> Nodes;
             SuggestionStage(size_t initialCapacity)
@@ -398,7 +403,7 @@ namespace symspell {
                 DeletesEnd = Deletes.end();
             }
 
-            void Add(int deleteHash, const char* suggestion)
+            void Add(size_t deleteHash, const char* suggestion)
             {
                 auto deletesFinded = Deletes.find(deleteHash);
                 Entry* entry = nullptr;
@@ -836,7 +841,7 @@ namespace symspell {
                             if (strcmp(suggestion, input) == 0) continue;
                             if ((abs(suggestionLen - inputLen) > maxEditDistance2) // input and sugg lengths diff > allowed/current best distance
                                     || (suggestionLen < candidateLen) // sugg must be for a different delete string, in same bin only because of hash collision
-                                    || (suggestionLen == candidateLen && suggestion != candidate)) // if sugg len = delete len, then it either equals delete or is in same bin only because of hash collision
+                                    || (suggestionLen == candidateLen && strcmp(suggestion, candidate) != 0)) // if sugg len = delete len, then it either equals delete or is in same bin only because of hash collision
                                 continue;
                             auto suggPrefixLen = min(suggestionLen, prefixLength);
                             if (suggPrefixLen > inputPrefixLen && (suggPrefixLen - candidateLen) > maxEditDistance2) continue;
@@ -988,6 +993,151 @@ namespace symspell {
 
             }//end if
 
+            bool LoadDictionary(char* corpus, int termIndex, int countIndex)
+            {
+                ifstream stream;
+                stream.open(corpus);
+                if (!stream.is_open())
+                    return false;
+
+                SuggestionStage staging(16384);
+
+                string line;
+                while ( getline (stream,line) )
+                {
+                    vector<string> lineParts;
+                    std::stringstream ss(line);
+                    std::string token;
+                    while (std::getline(ss, token, ' ')) {
+                        lineParts.push_back(token);
+                    }
+
+                    if (lineParts.size() >= 2)
+                    {
+                        int64_t count = stoll(lineParts[countIndex]);
+                        CreateDictionaryEntry(lineParts[termIndex].c_str(), count, &staging);
+                    }
+                }
+
+                stream.close();
+
+
+
+                CommitStaged(staging);
+                return true;
+            }
+
+            void rempaceSpaces(char* source)
+            {
+                char* i = source;
+                char* j = source;
+
+                do
+                {
+                    *i = *j;
+                    if(*i != ' ')
+                        ++i;
+                } while(*j++ != 0);
+            }
+
+            std::tuple<string, string, int, double> WordSegmentation(char* input, size_t maxEditDistance, size_t maxSegmentationWordLength)
+            {
+                size_t inputLen = strlen(input);
+                int arraySize = min(maxSegmentationWordLength, strlen(input));
+                std::vector<std::tuple<string, string, int, double>> compositions;
+                compositions.reserve(arraySize);
+                int circularIndex = -1;
+
+                for (int j = 0; j < inputLen; ++j)
+                {
+                    //inner loop (row): all possible part lengths (from start position): part can't be bigger than longest word in dictionary (other than long unknown word)
+                    int imax = min(inputLen - j, maxSegmentationWordLength);
+                    for (int i = 1; i <= imax; ++i)
+                    {
+                        char* part = new char[(i - j) + 1];
+                        std::memcpy(part, input + j, i);
+                        part[(i - j)] = '\0';
+
+                        int separatorLength = 0;
+                        int topEd = 0;
+                        double topProbabilityLog = 0;
+                        char* topResult = nullptr;
+
+                        if (isspace(part[0]))
+                        {
+                            size_t partLen = strlen(part);
+                            char* tmp = new char[partLen];
+                            std::memcpy(tmp, part + 1, partLen - 1);
+                            tmp[(i - j)] = '\0';
+
+                            delete[] part;
+                            part = tmp;
+                        }
+                        else
+                        {
+                            //add ed+1: space did not exist, had to be inserted
+                            separatorLength = 1;
+                        }
+
+                        //remove space from part1, add number of removed spaces to topEd
+                        topEd += strlen(part);
+                        //remove space
+                        rempaceSpaces(part);
+                        //add number of removed spaces to ed
+                        topEd -= strlen(part);
+                        vector<std::unique_ptr<symspell::SuggestItem>> results;
+                        Lookup(part, symspell::Verbosity::Top, maxEditDistance, results);
+                        if (results.size() > 0)
+                        {
+                            size_t termLen = strlen(results[0]->term);
+                            topResult = new char[termLen + 1];
+                            std::memcpy(topResult, results[0]->term, termLen);
+                            topResult[termLen] = '\0';
+
+                            topEd += results[0]->distance;
+                            //Naive Bayes Rule
+                            //we assume the word probabilities of two words to be independent
+                            //therefore the resulting probability of the word combination is the product of the two word probabilities
+
+                            //instead of computing the product of probabilities we are computing the sum of the logarithm of probabilities
+                            //because the probabilities of words are about 10^-10, the product of many such small numbers could exceed (underflow) the floating number range and become zero
+                            //log(ab)=log(a)+log(b)
+                            topProbabilityLog = (double)log10((double)results[0]->count / (double)N);
+                        }
+                        else
+                        {
+                            topResult = part;
+                            //default, if word not found
+                            //otherwise long input text would win as long unknown word (with ed=edmax+1 ), although there there should many spaces inserted
+                            topEd += strlen(part);
+                            topProbabilityLog = (double)log10(10.0 / (N * pow(10.0, strlen(part))));
+                        }
+
+                        int destinationIndex = ((i + circularIndex) % arraySize);
+
+                        //set values in first loop
+                        if (j == 0)
+                        {
+                            compositions[destinationIndex] =  std::make_tuple(part, topResult, topEd, topProbabilityLog);
+                        }
+                        else if ((i == maxSegmentationWordLength)
+                                 //replace values if better probabilityLogSum, if same edit distance OR one space difference
+                                 || (((std::get<2>(compositions[circularIndex]) + topEd == std::get<2>(compositions[destinationIndex])) || (std::get<2>(compositions[circularIndex]) + separatorLength + topEd == std::get<2>(compositions[destinationIndex]))) && (std::get<3>(compositions[destinationIndex]) < std::get<3>(compositions[circularIndex]) + topProbabilityLog))
+                                 //replace values if smaller edit distance
+                                 || (std::get<2>(compositions[circularIndex]) + separatorLength + topEd < std::get<2>(compositions[destinationIndex])))
+                        {
+                            compositions[destinationIndex] = std::make_tuple(
+                                                                 std::get<0>(compositions[circularIndex]) + " " + part,
+                                                                 std::get<1>(compositions[circularIndex]) + " " + topResult,
+                                                                 std::get<2>(compositions[circularIndex]) + separatorLength + topEd,
+                                                                 std::get<3>(compositions[circularIndex]) + topProbabilityLog);
+                        }
+                    }
+                    circularIndex++; if (circularIndex == arraySize) circularIndex = 0;
+                }
+                return compositions[circularIndex];
+            }
+
             /// <summary>Maximum edit distance for dictionary precalculation.</summary>
             size_t MaxDictionaryEditDistance() { return this->maxDictionaryEditDistance; }
 
@@ -1025,6 +1175,7 @@ namespace symspell {
             CUSTOM_SET<const char*, hash_c_string, comp_c_string> hashset2;
             CUSTOM_SET<const char*, hash_c_string, comp_c_string>::iterator hashset2Begin;
             hash_c_string stringHash;
+            long N = 1024908267229;
 
             CUSTOM_MAP<size_t, vector<const char*>> deletes;
             CUSTOM_MAP<size_t, vector<const char*>>::iterator deletesEnd;
