@@ -270,23 +270,21 @@ namespace symspell {
                 delete[] term;
             }
 
-            int8_t CompareTo(SuggestItem const& other)
+            bool CompareTo(SuggestItem const& other)
             {
                 // order by distance ascending, then by frequency count descending
                 if (this->distance == other.distance)
                 {
                     if (other.count == this->count)
-                        return 0;
+                        return false;
                     else if (other.count > this->count)
-                        return -1;
-                    return 1;
+                        return true;
+                    return false;
                 }
 
-                if (other.distance == this->distance)
-                    return 0;
-                else if (other.distance > this->distance)
-                    return -1;
-                return 1;
+                if (other.distance > this->distance)
+                    return false;
+                return true;
             }
 
             bool operator == (const SuggestItem &ref) const
@@ -422,7 +420,7 @@ namespace symspell {
                 Nodes.Add(item);
             }
 
-            void CommitTo(CUSTOM_MAP<int32_t, vector<const char*>> & permanentDeletes)
+            void CommitTo(CUSTOM_MAP<size_t, vector<const char*>> & permanentDeletes)
             {
                 auto permanentDeletesEnd = permanentDeletes.end();
                 for (auto it = Deletes.begin(); it != DeletesEnd; ++it)
@@ -601,7 +599,7 @@ namespace symspell {
                     auto editsEnd = edits.end();
                     for (auto it = edits.begin(); it != editsEnd; ++it)
                     {
-                        int deleteHash = stringHash(*it);
+                        size_t deleteHash = stringHash(*it);
                         auto deletesFinded = deletes.find(deleteHash);
                         if (deletesFinded != deletesEnd)
                         {
@@ -609,8 +607,8 @@ namespace symspell {
                             std::memcpy(tmp, key, keyLen);
                             tmp[keyLen] = '\0';
                             
-                            delete[] deletes[deleteHash][deletesFinded->second.size() - 1];
-                            deletes[deleteHash][deletesFinded->second.size() - 1] = tmp;
+                            //delete[] deletes[deleteHash][deletesFinded->second.size() - 1];
+                            deletes[deleteHash].push_back(tmp);
                             deletesEnd = deletes.end();
                         }
                         else
@@ -620,8 +618,8 @@ namespace symspell {
                             tmp[keyLen] = '\0';
                             
                             deletes[deleteHash] = vector<const char*>();
-                            deletes[deleteHash].resize(1);
-                            deletes[deleteHash][0] = tmp;
+                            //deletes[deleteHash].resize(1);
+                            deletes[deleteHash].push_back(tmp);
                             deletesEnd = deletes.end();
                         }
                     }
@@ -961,7 +959,10 @@ namespace symspell {
 
                 //sort by ascending edit distance, then by descending word frequency
                 if (suggestionsLen > 1)
-                    std::sort(suggestions.begin(), suggestions.end());
+                    std::sort(suggestions.begin(), suggestions.end(), [](std::unique_ptr<symspell::SuggestItem> &l, std::unique_ptr<symspell::SuggestItem> & r)
+                    {
+                        return r->CompareTo(*l);
+                    });
 
 
                 //cleaning
@@ -1025,8 +1026,8 @@ namespace symspell {
             CUSTOM_SET<const char*, hash_c_string, comp_c_string>::iterator hashset2Begin;
             hash_c_string stringHash;
 
-            CUSTOM_MAP<int32_t, vector<const char*>> deletes;
-            CUSTOM_MAP<int32_t, vector<const char*>>::iterator deletesEnd;
+            CUSTOM_MAP<size_t, vector<const char*>> deletes;
+            CUSTOM_MAP<size_t, vector<const char*>>::iterator deletesEnd;
 
             // Dictionary of unique correct spelling words, and the frequency count for each word.
             CUSTOM_MAP<const char*, int64_t, hash_c_string, comp_c_string> words;
