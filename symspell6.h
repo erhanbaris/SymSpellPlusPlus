@@ -317,18 +317,20 @@ namespace symspell {
     {
         public:
             vector<vector<T>> Values; //todo: use pointer array
-            uint32_t Count;
+            size_t Count;
 
             ChunkArray()
-            { }
+            {
+                Count = 0;
+            }
 
             void Reserve(size_t initialCapacity)
             {
                 size_t chunks = (initialCapacity + ChunkSize - 1) / ChunkSize;
-                Values.reserve(chunks);
+                Values.resize(chunks);
                 for (size_t i = 0; i < chunks; ++i)
                 {
-                    Values[i].reserve(ChunkSize);
+                    Values[i].resize(ChunkSize);
                 }
             }
 
@@ -336,17 +338,15 @@ namespace symspell {
             {
                 if (Count == Capacity())
                 {
-                    //todo: FIX not working yet
-                    vector<vector<T>> newValues;
-                    newValues.reserve(Values.size() + 1);
-
-                    std::copy(Values.begin(), Values.end(), back_inserter(newValues));
-                    newValues[Values.size()].reserve(ChunkSize);
-                    Values = newValues;
+                    Values.push_back(vector<T>());
+                    Values[Values.size()-1].resize(ChunkSize);
                 }
-                Values[Row(Count)][Col(Count)] = value;
-                ++Count;
-                return Count - 1;
+
+                int row = Row(Count);
+                int col = Col(Count);
+
+                Values[row][col] = value;
+                return Count++;
             }
 
             void Clear()
@@ -409,13 +409,13 @@ namespace symspell {
                 Entry* entry = nullptr;
                 if (deletesFinded == DeletesEnd) {
                     entry = new Entry;
-                    entry->count;
+                    entry->count = 0;
                     entry->first = -1;
                 }
                 else
                     entry = deletesFinded->second;
 
-                int next = entry->first;
+                int64_t next = entry->first;
                 ++entry->count;
                 entry->first = Nodes.Count;
                 Deletes[deleteHash] = entry;
@@ -447,7 +447,8 @@ namespace symspell {
                     {
                         i = 0;
                         suggestions = new vector<const char*>;
-                        suggestions->reserve(it->second->count);
+                        int32_t count = it->second->count;
+                        suggestions->reserve(count);
                         permanentDeletes[it->first] = *suggestions;
                     }
 
@@ -467,14 +468,14 @@ namespace symspell {
             {
                 public:
                     const char* suggestion;
-                    int32_t next;
+                    int64_t next;
             };
 
             class Entry
             {
                 public:
-                    int32_t count;
-                    int32_t first;
+                    int64_t count;
+                    int64_t first;
             };
     };
 
@@ -596,7 +597,7 @@ namespace symspell {
                     auto editsEnd = edits.end();
                     for (auto it = edits.begin(); it != editsEnd; ++it)
                     {
-                        staging->Add(stringHash(*it), key);
+                        staging->Add(stringHash(*it), _strdup(key));
                     }
                 }
                 else
@@ -632,7 +633,12 @@ namespace symspell {
 
                 CUSTOM_SET<const char*, hash_c_string, comp_c_string>::iterator editsEnd = edits.end();
                 for(auto it = edits.begin(); it != editsEnd; ++it)
-                    delete[] *it;
+                {
+                    const char* tmp = static_cast<const char*>(*it);
+                    size_t len = strlen(tmp);
+                    if (len > 0)
+                        delete[] tmp;
+                }
 
                 edits.clear();
                 return true;
@@ -682,7 +688,7 @@ namespace symspell {
                             deleteWordsEnd = deleteWords.end();
 
                             //recursion, if maximum edit distance not yet reached
-                            if (editDistance < maxDictionaryEditDistance)
+                            if (editDistance < maxDictionaryEditDistance && (wordLen-1) > 1)
                                 Edits(tmp, editDistance, deleteWords);
                         }
                         else {
@@ -1000,23 +1006,39 @@ namespace symspell {
                 if (!stream.is_open())
                     return false;
 
+                char a,b,c;
+                a = stream.get();
+                b = stream.get();
+                c = stream.get();
+                if (a != (char)0xEF || b != (char)0xBB || c != (char)0xBF) {
+                    stream.seekg(0);
+                }
+
                 SuggestionStage staging(16384);
 
                 string line;
                 while ( getline (stream,line) )
                 {
-                    vector<string> lineParts;
+                    vector<const char*> lineParts;
                     std::stringstream ss(line);
                     std::string token;
                     while (std::getline(ss, token, ' ')) {
-                        lineParts.push_back(token);
+                        size_t len = token.size();
+                        char* tmp = new char[len + 1];
+                        std::memcpy(tmp, token.c_str(), len);
+                        tmp[len] = '\0';
+                        lineParts.push_back(tmp);
                     }
 
                     if (lineParts.size() >= 2)
                     {
                         int64_t count = stoll(lineParts[countIndex]);
-                        CreateDictionaryEntry(lineParts[termIndex].c_str(), count, &staging);
+                        CreateDictionaryEntry(lineParts[termIndex], count, &staging);
                     }
+
+                    auto linePartsEnd = lineParts.end();
+                    for(auto it = lineParts.begin(); it != linePartsEnd; ++it)
+                        delete[] *it;
                 }
 
                 stream.close();
@@ -1040,11 +1062,21 @@ namespace symspell {
                 } while(*j++ != 0);
             }
 
-            std::tuple<string, string, int, double> WordSegmentation(char* input, size_t maxEditDistance, size_t maxSegmentationWordLength)
+            std::tuple<const char*, const char*, int, double> WordSegmentation(const char* input)
+            {
+                return WordSegmentation(input, this->maxDictionaryEditDistance, this->maxDictionaryWordLength);
+            }
+
+            std::tuple<const char*, const char*, int, double> WordSegmentation(const char* input, size_t maxEditDistance)
+            {
+                return WordSegmentation(input, maxEditDistance, this->maxDictionaryWordLength);
+            }
+        
+            std::tuple<const char*, const char*, int, double> WordSegmentation(const char* input, size_t maxEditDistance, size_t maxSegmentationWordLength)
             {
                 size_t inputLen = strlen(input);
                 int arraySize = min(maxSegmentationWordLength, strlen(input));
-                std::vector<std::tuple<string, string, int, double>> compositions;
+                std::vector<std::tuple<const char*, const char*, int, double>> compositions;
                 compositions.reserve(arraySize);
                 int circularIndex = -1;
 
@@ -1054,9 +1086,9 @@ namespace symspell {
                     int imax = min(inputLen - j, maxSegmentationWordLength);
                     for (int i = 1; i <= imax; ++i)
                     {
-                        char* part = new char[(i - j) + 1];
+                        char* part = new char[i + 1];
                         std::memcpy(part, input + j, i);
-                        part[(i - j)] = '\0';
+                        part[i] = '\0';
 
                         int separatorLength = 0;
                         int topEd = 0;
@@ -1106,6 +1138,7 @@ namespace symspell {
                         }
                         else
                         {
+                            delete[] topResult;
                             topResult = part;
                             //default, if word not found
                             //otherwise long input text would win as long unknown word (with ed=edmax+1 ), although there there should many spaces inserted
@@ -1118,7 +1151,7 @@ namespace symspell {
                         //set values in first loop
                         if (j == 0)
                         {
-                            compositions[destinationIndex] =  std::make_tuple(part, topResult, topEd, topProbabilityLog);
+                            compositions[destinationIndex] =  std::make_tuple(_strdup(part), _strdup(topResult), topEd, topProbabilityLog);
                         }
                         else if ((i == maxSegmentationWordLength)
                                  //replace values if better probabilityLogSum, if same edit distance OR one space difference
@@ -1126,9 +1159,32 @@ namespace symspell {
                                  //replace values if smaller edit distance
                                  || (std::get<2>(compositions[circularIndex]) + separatorLength + topEd < std::get<2>(compositions[destinationIndex])))
                         {
-                            compositions[destinationIndex] = std::make_tuple(
-                                                                 std::get<0>(compositions[circularIndex]) + " " + part,
-                                                                 std::get<1>(compositions[circularIndex]) + " " + topResult,
+                            const char* segmented =  std::get<0>(compositions[circularIndex]);
+                            const char* corrected =  std::get<1>(compositions[circularIndex]);
+
+                            size_t segmentedLen = strlen(segmented);
+                            size_t correctedLen = strlen(corrected);
+                            size_t partLen = strlen(part);
+                            size_t topResultLen = strlen(topResult);
+
+                            char* segmentedTmp =  new char[segmentedLen + partLen + 2];
+                            char* correctedTmp =  new char[correctedLen + topResultLen + 2];
+
+                            std::memcpy(segmentedTmp, segmented, segmentedLen);
+                            std::memcpy(segmentedTmp + segmentedLen, " ", 1);
+                            std::memcpy(segmentedTmp + segmentedLen + 1, part, partLen);
+                            segmentedTmp[segmentedLen + partLen + 1] = '\0';
+
+                            std::memcpy(correctedTmp, corrected, correctedLen);
+                            std::memcpy(correctedTmp + correctedLen, " ", 1);
+                            std::memcpy(correctedTmp + correctedLen + 1, topResult, topResultLen);
+                            correctedTmp[correctedLen + topResultLen + 1] = '\0';
+
+                            delete[] segmented;
+                            delete[] corrected;
+
+                            compositions[destinationIndex] = std::make_tuple(segmentedTmp,
+                                                                 correctedTmp,
                                                                  std::get<2>(compositions[circularIndex]) + separatorLength + topEd,
                                                                  std::get<3>(compositions[circularIndex]) + topProbabilityLog);
                         }
