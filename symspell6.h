@@ -33,7 +33,7 @@
 #ifndef SYMSPELL6_H
 #define SYMSPELL6_H
 
-//#define USE_GOOGLE_HASH_MAP
+#define USE_GOOGLE_HASH_MAP
 
 
 #include <stdint.h>
@@ -106,7 +106,7 @@ namespace symspell {
 
     struct comp_c_string {
             bool operator()(const char *s1, const char *s2) const {
-                return strcmp(s1, s2) == 0;
+                return (s1 == s2) || (s1 && s2 && strcmp(s1, s2) == 0);
             }
     };
 
@@ -312,6 +312,41 @@ namespace symspell {
             }
     };
 
+    class WordSegmentationItem
+    {
+        public:
+            const char* segmentedString{nullptr};
+            const char* correctedString{nullptr};
+            u_int8_t distanceSum = 0;
+            double probabilityLogSum = 0;
+
+            WordSegmentationItem() { }
+            WordSegmentationItem(const symspell::WordSegmentationItem & p)
+            {
+                this->segmentedString = p.segmentedString;
+                this->correctedString = p.correctedString;
+                this->distanceSum = p.distanceSum;
+                this->probabilityLogSum = p.probabilityLogSum;
+            }
+
+            WordSegmentationItem& operator=(const WordSegmentationItem&) { return *this ; }
+            WordSegmentationItem& operator=(WordSegmentationItem&&) { return *this ; }
+
+            void set(const char* pSegmentedString, const char* pCorrectedString,  u_int8_t pDistanceSum, double pProbabilityLogSum)
+            {
+                this->segmentedString = pSegmentedString;
+                this->correctedString = pCorrectedString;
+                this->distanceSum = pDistanceSum;
+                this->probabilityLogSum = pProbabilityLogSum;
+            }
+
+            ~WordSegmentationItem()
+            {
+                delete[] segmentedString;
+                delete[] correctedString;
+            }
+    };
+
     template<typename T>
     class ChunkArray
     {
@@ -490,11 +525,12 @@ namespace symspell {
                 if (countThreshold < 0) throw std::invalid_argument("countThreshold");
                 if (compactLevel > 16) throw std::invalid_argument("compactLevel");
 #ifdef USE_GOOGLE_HASH_MAP
-                this->words.set_empty_key("");
+                this->words.set_empty_key(nullptr);
                 this->deletes.set_empty_key(0);
-                this->hashset1.set_empty_key("");
-                this->hashset2.set_empty_key("");
-                this->belowThresholdWords.set_empty_key("");
+                this->hashset1.set_empty_key(nullptr);
+                this->hashset2.set_empty_key(nullptr);
+                this->belowThresholdWords.set_empty_key(nullptr);
+                this->edits.set_empty_key(nullptr);
 #endif
 #ifdef USE_GOOGLE_HASH_MAP
                 this->words.resize(initialCapacity);
@@ -586,10 +622,6 @@ namespace symspell {
                 if (keyLen > maxDictionaryWordLength)
                     maxDictionaryWordLength = keyLen;
 
-                CUSTOM_SET<const char*, hash_c_string, comp_c_string> edits;
-#ifdef USE_GOOGLE_HASH_MAP
-                edits.set_empty_key("");
-#endif
                 EditsPrefix(key, edits);
 
                 if (staging != nullptr)
@@ -631,7 +663,7 @@ namespace symspell {
                     }
                 }
 
-                CUSTOM_SET<const char*, hash_c_string, comp_c_string>::iterator editsEnd = edits.end();
+                CUSTOM_SET<const char*, hash<const char*>, comp_c_string>::iterator editsEnd = edits.end();
                 for(auto it = edits.begin(); it != editsEnd; ++it)
                 {
                     const char* tmp = static_cast<const char*>(*it);
@@ -644,7 +676,7 @@ namespace symspell {
                 return true;
             }
 
-            void EditsPrefix(const char* key, CUSTOM_SET<const char *, hash_c_string, comp_c_string>& hashSet)
+            void EditsPrefix(const char* key, CUSTOM_SET<const char *, hash<const char*>, comp_c_string>& hashSet)
             {
                 size_t len = strlen(key);
                 char* tmp = nullptr;
@@ -668,7 +700,7 @@ namespace symspell {
                 Edits(tmp, 0, hashSet);
             }
 
-            void Edits(const char * word, int32_t editDistance, CUSTOM_SET<const char *, hash_c_string, comp_c_string> & deleteWords)
+            void Edits(const char * word, int32_t editDistance, CUSTOM_SET<const char *, hash<const char*>, comp_c_string> & deleteWords)
             {
                 auto deleteWordsEnd = deleteWords.end();
                 ++editDistance;
@@ -723,6 +755,7 @@ namespace symspell {
             {
                 mtx.lock();
                 suggestions.clear();
+                edits.clear();
 
                 //verbosity=Top: the suggestion with the highest term frequency of the suggestions of smallest edit distance found
                 //verbosity=Closest: all suggestions of smallest edit distance found, the suggestions are ordered by term frequency
@@ -991,6 +1024,10 @@ namespace symspell {
                 for (auto it = candidatesBegin; it != candidatesEnd; ++it)
                     delete[] * it;
 
+                auto editsEnd = edits.end();
+                for (auto it = edits.begin(); it != editsEnd; ++it)
+                    delete[] * it;
+
                 candidates.clear();
                 hashset1.clear();
                 hashset2.clear();
@@ -1033,7 +1070,7 @@ namespace symspell {
                     if (lineParts.size() >= 2)
                     {
                         int64_t count = stoll(lineParts[countIndex]);
-                        CreateDictionaryEntry(lineParts[termIndex], count, &staging);
+                        CreateDictionaryEntry(lineParts[termIndex], count/*, &staging*/);
                     }
 
                     auto linePartsEnd = lineParts.end();
@@ -1045,7 +1082,7 @@ namespace symspell {
 
 
 
-                CommitStaged(staging);
+                //CommitStaged(staging);
                 return true;
             }
 
@@ -1062,22 +1099,29 @@ namespace symspell {
                 } while(*j++ != 0);
             }
 
-            std::tuple<const char*, const char*, int, double> WordSegmentation(const char* input)
+            shared_ptr<WordSegmentationItem> WordSegmentation(const char* input)
             {
                 return WordSegmentation(input, this->maxDictionaryEditDistance, this->maxDictionaryWordLength);
             }
 
-            std::tuple<const char*, const char*, int, double> WordSegmentation(const char* input, size_t maxEditDistance)
+            shared_ptr<WordSegmentationItem> WordSegmentation(const char* input, size_t maxEditDistance)
             {
                 return WordSegmentation(input, maxEditDistance, this->maxDictionaryWordLength);
             }
         
-            std::tuple<const char*, const char*, int, double> WordSegmentation(const char* input, size_t maxEditDistance, size_t maxSegmentationWordLength)
+            shared_ptr<WordSegmentationItem> WordSegmentation(const char* input, size_t maxEditDistance, size_t maxSegmentationWordLength)
             {
                 size_t inputLen = strlen(input);
                 int arraySize = min(maxSegmentationWordLength, strlen(input));
-                std::vector<std::tuple<const char*, const char*, int, double>> compositions;
-                compositions.reserve(arraySize);
+                std::vector<shared_ptr<WordSegmentationItem>> compositions;
+                compositions.resize(arraySize);
+
+                for(size_t i = 0; i < arraySize; ++i)
+                {
+                    std::shared_ptr<WordSegmentationItem> unq(new WordSegmentationItem());
+                    compositions[i] = std::move(unq);
+                }
+
                 int circularIndex = -1;
 
                 for (int j = 0; j < inputLen; ++j)
@@ -1151,16 +1195,16 @@ namespace symspell {
                         //set values in first loop
                         if (j == 0)
                         {
-                            compositions[destinationIndex] =  std::make_tuple(_strdup(part), _strdup(topResult), topEd, topProbabilityLog);
+                            compositions[destinationIndex]->set(_strdup(part), _strdup(topResult), topEd, topProbabilityLog);
                         }
                         else if ((i == maxSegmentationWordLength)
                                  //replace values if better probabilityLogSum, if same edit distance OR one space difference
-                                 || (((std::get<2>(compositions[circularIndex]) + topEd == std::get<2>(compositions[destinationIndex])) || (std::get<2>(compositions[circularIndex]) + separatorLength + topEd == std::get<2>(compositions[destinationIndex]))) && (std::get<3>(compositions[destinationIndex]) < std::get<3>(compositions[circularIndex]) + topProbabilityLog))
+                                 || (((compositions[circularIndex]->distanceSum + topEd == compositions[destinationIndex]->distanceSum) || (compositions[circularIndex]->distanceSum + separatorLength + topEd == compositions[destinationIndex]->distanceSum)) && (compositions[destinationIndex]->probabilityLogSum < compositions[circularIndex]->probabilityLogSum + topProbabilityLog))
                                  //replace values if smaller edit distance
-                                 || (std::get<2>(compositions[circularIndex]) + separatorLength + topEd < std::get<2>(compositions[destinationIndex])))
+                                 || (compositions[circularIndex]->distanceSum + separatorLength + topEd < compositions[destinationIndex]->distanceSum))
                         {
-                            const char* segmented =  std::get<0>(compositions[circularIndex]);
-                            const char* corrected =  std::get<1>(compositions[circularIndex]);
+                            const char* segmented =  compositions[circularIndex]->segmentedString;
+                            const char* corrected =  compositions[circularIndex]->correctedString;
 
                             size_t segmentedLen = strlen(segmented);
                             size_t correctedLen = strlen(corrected);
@@ -1180,16 +1224,19 @@ namespace symspell {
                             std::memcpy(correctedTmp + correctedLen + 1, topResult, topResultLen);
                             correctedTmp[correctedLen + topResultLen + 1] = '\0';
 
-                            delete[] segmented;
-                            delete[] corrected;
+                            if (strlen(compositions[destinationIndex]->segmentedString) > 0)
+                                delete[] compositions[destinationIndex]->segmentedString;
 
-                            compositions[destinationIndex] = std::make_tuple(segmentedTmp,
+                            if (strlen(compositions[destinationIndex]->correctedString) > 0)
+                                delete[] compositions[destinationIndex]->correctedString;
+
+                            compositions[destinationIndex]->set(segmentedTmp,
                                                                  correctedTmp,
-                                                                 std::get<2>(compositions[circularIndex]) + separatorLength + topEd,
-                                                                 std::get<3>(compositions[circularIndex]) + topProbabilityLog);
+                                                                 compositions[circularIndex]->distanceSum + separatorLength + topEd,
+                                                                 compositions[circularIndex]->probabilityLogSum + topProbabilityLog);
                         }
                     }
-                    circularIndex++; if (circularIndex == arraySize) circularIndex = 0;
+                    ++circularIndex; if (circularIndex == arraySize) circularIndex = 0;
                 }
                 return compositions[circularIndex];
             }
@@ -1226,23 +1273,24 @@ namespace symspell {
             vector<const char*>::iterator candidatesBegin;
 
             EditDistance* distanceComparer{ nullptr };
-            CUSTOM_SET<const char*, hash_c_string, comp_c_string> hashset1;
-            CUSTOM_SET<const char*, hash_c_string, comp_c_string>::iterator hashset1Begin;
-            CUSTOM_SET<const char*, hash_c_string, comp_c_string> hashset2;
-            CUSTOM_SET<const char*, hash_c_string, comp_c_string>::iterator hashset2Begin;
-            hash_c_string stringHash;
+            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> edits;
+            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset1;
+            CUSTOM_SET<const char*, hash<const char*>, comp_c_string>::iterator hashset1Begin;
+            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset2;
+            CUSTOM_SET<const char*, hash<const char*>, comp_c_string>::iterator hashset2Begin;
+            hash<const char*> stringHash;
             long N = 1024908267229;
 
             CUSTOM_MAP<size_t, vector<const char*>> deletes;
             CUSTOM_MAP<size_t, vector<const char*>>::iterator deletesEnd;
 
             // Dictionary of unique correct spelling words, and the frequency count for each word.
-            CUSTOM_MAP<const char*, int64_t, hash_c_string, comp_c_string> words;
-            CUSTOM_MAP<const char*, int64_t, hash_c_string, comp_c_string>::iterator wordsEnd;
+            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string> words;
+            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string>::iterator wordsEnd;
 
             // Dictionary of unique words that are below the count threshold for being considered correct spellings.
-            CUSTOM_MAP<const char*, int64_t, hash_c_string, comp_c_string> belowThresholdWords;
-            CUSTOM_MAP<const char*, int64_t, hash_c_string, comp_c_string>::iterator belowThresholdWordsEnd;
+            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string> belowThresholdWords;
+            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string>::iterator belowThresholdWordsEnd;
 
             bool DeleteInSuggestionPrefix(char const* del, int deleteLen, char const* suggestion, int suggestionLen)
             {
