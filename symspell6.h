@@ -535,10 +535,10 @@ namespace symspell {
 #ifdef USE_GOOGLE_HASH_MAP
                 this->words.set_empty_key(nullptr);
                 this->deletes.set_empty_key(0);
-                this->hashset1.set_empty_key(nullptr);
-                this->hashset2.set_empty_key(nullptr);
+                this->hashset1.set_empty_key(0);
+                this->hashset2.set_empty_key(0);
                 this->belowThresholdWords.set_empty_key(nullptr);
-                this->edits.set_empty_key(nullptr);
+                this->edits.set_empty_key(0);
 #endif
 #ifdef USE_GOOGLE_HASH_MAP
                 this->words.resize(initialCapacity);
@@ -637,7 +637,7 @@ namespace symspell {
                     auto editsEnd = edits.end();
                     for (auto it = edits.begin(); it != editsEnd; ++it)
                     {
-                        staging->Add(stringHash(*it), _strdup(key));
+                        staging->Add(*it, _strdup(key));
                     }
                 }
                 else
@@ -645,7 +645,7 @@ namespace symspell {
                     auto editsEnd = edits.end();
                     for (auto it = edits.begin(); it != editsEnd; ++it)
                     {
-                        size_t deleteHash = stringHash(*it);
+                        size_t deleteHash = *it;
                         auto deletesFinded = deletes.find(deleteHash);
                         if (deletesFinded != deletesEnd)
                         {
@@ -671,25 +671,16 @@ namespace symspell {
                     }
                 }
 
-                CUSTOM_SET<const char*, hash<const char*>, comp_c_string>::iterator editsEnd = edits.end();
-                for(auto it = edits.begin(); it != editsEnd; ++it)
-                {
-                    const char* tmp = static_cast<const char*>(*it);
-                    size_t len = strlen(tmp);
-                    if (len > 0)
-                        delete[] tmp;
-                }
-
                 edits.clear();
                 return true;
             }
 
-            void EditsPrefix(const char* key, CUSTOM_SET<const char *, hash<const char*>, comp_c_string>& hashSet)
+            void EditsPrefix(const char* key, CUSTOM_SET<size_t>& hashSet)
             {
                 size_t len = strlen(key);
                 char* tmp = nullptr;
-                if (len <= maxDictionaryEditDistance)
-                    hashSet.insert("");
+                /*if (len <= maxDictionaryEditDistance) //todo fix
+                    hashSet.insert("");*/
 
                 if (len > prefixLength)
                 {
@@ -704,11 +695,11 @@ namespace symspell {
                     tmp[len] = '\0';
                 }
 
-                hashSet.insert(tmp);
+                hashSet.insert(stringHash(tmp));
                 Edits(tmp, 0, hashSet);
             }
 
-            void Edits(const char * word, int32_t editDistance, CUSTOM_SET<const char *, hash<const char*>, comp_c_string> & deleteWords)
+            void Edits(const char * word, int32_t editDistance, CUSTOM_SET<size_t> & deleteWords)
             {
                 auto deleteWordsEnd = deleteWords.end();
                 ++editDistance;
@@ -722,9 +713,9 @@ namespace symspell {
                         std::memcpy(tmp + i, word + i + 1, wordLen - 1 - i);
                         tmp[wordLen - 1] = '\0';
 
-                        if (deleteWordsEnd == deleteWords.find(tmp))
+                        if (deleteWordsEnd == deleteWords.find(stringHash(tmp)))
                         {
-                            deleteWords.insert(tmp);
+                            deleteWords.insert(stringHash(tmp));
                             deleteWordsEnd = deleteWords.end();
 
                             //recursion, if maximum edit distance not yet reached
@@ -834,7 +825,7 @@ namespace symspell {
 
                 auto hashset1End = hashset1.end();
 
-                hashset2.insert(_strdup(input));
+                hashset2.insert(stringHash(input));
                 hashset2End = hashset2.end();
 
                 int maxEditDistance2 = maxEditDistance;
@@ -906,10 +897,10 @@ namespace symspell {
                                 if (distance > maxEditDistance2)
                                     continue;
 
-                                auto hashset2Finded = hashset2.find(suggestion);
+                                auto hashset2Finded = hashset2.find(stringHash(suggestion));
                                 if (hashset2End == hashset2Finded)
                                 {
-                                    hashset2.insert(_strdup(suggestion));
+                                    hashset2.insert(stringHash(suggestion));
                                     hashset2End = hashset2.end();
                                 }
                                 else
@@ -922,10 +913,10 @@ namespace symspell {
                                 if (distance > maxEditDistance2)
                                     continue;
 
-                                auto hashset2Finded = hashset2.find(suggestion);
+                                auto hashset2Finded = hashset2.find(stringHash(suggestion));
                                 if (hashset2End == hashset2Finded)
                                 {
-                                    hashset2.insert(_strdup(suggestion));
+                                    hashset2.insert(stringHash(suggestion));
                                     hashset2End = hashset2.end();
                                 }
                                 else
@@ -945,10 +936,10 @@ namespace symspell {
                                 {
                                     if (verbosity != Verbosity::All && !DeleteInSuggestionPrefix(candidate, candidateLen, suggestion, suggestionLen)) continue;
 
-                                    auto hashset2Finded = hashset2.find(suggestion);
+                                    auto hashset2Finded = hashset2.find(stringHash(suggestion));
                                     if (hashset2End == hashset2Finded)
                                     {
-                                        hashset2.insert(_strdup(suggestion));
+                                        hashset2.insert(stringHash(suggestion));
                                         hashset2End = hashset2.end();
                                     }
                                     else
@@ -1016,11 +1007,11 @@ namespace symspell {
                             std::memcpy(tmp + i, candidate + i + 1, candidateLen - 1 - i);
                             tmp[candidateLen - 1] = '\0';
 
-                            if (hashset1End == hashset1.find(tmp))
+                            if (hashset1End == hashset1.find(stringHash(tmp)))
                             {
-                                hashset1.insert(tmp);
+                                hashset1.insert(stringHash(tmp));
                                 hashset1End = hashset1.end();
-                                candidates.push_back(_strdup(tmp));
+                                candidates.push_back(tmp);
                                 ++candidatesLen;
                             }
                             else
@@ -1041,18 +1032,8 @@ namespace symspell {
 
                 //std::cout << hashset2.size() << std::endl;
 
-                for (auto it = hashset1.begin(); it != hashset1End; ++it)
-                    delete[] * it;
-
-                for (auto it = hashset2.begin(); it != hashset2End; ++it)
-                    delete[] * it;
-
                 auto candidatesEnd = candidates.end();
                 for (auto it = candidates.begin(); it != candidatesEnd; ++it)
-                    delete[] * it;
-
-                auto editsEnd = edits.end();
-                for (auto it = edits.begin(); it != editsEnd; ++it)
                     delete[] * it;
 
                 candidates.clear();
@@ -1299,10 +1280,10 @@ namespace symspell {
             vector<const char*> candidates;
 
             EditDistance* distanceComparer{ nullptr };
-            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> edits;
-            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset1; //TODO: use CUSTOM_SET<size_t> hashset1;
-            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset2; //TODO: use CUSTOM_SET<size_t> hashset1;
-            CUSTOM_SET<const char*, hash<const char*>, comp_c_string>::iterator hashset2End;  //TODO: use CUSTOM_SET<size_t>::iterator hashset2End; 
+            CUSTOM_SET<size_t> edits;
+            CUSTOM_SET<size_t> hashset1; //TODO: use CUSTOM_SET<size_t> hashset1;
+            CUSTOM_SET<size_t> hashset2; //TODO: use CUSTOM_SET<size_t> hashset1;
+            CUSTOM_SET<size_t>::iterator hashset2End;  //TODO: use CUSTOM_SET<size_t>::iterator hashset2End; 
             hash<const char*> stringHash;
             long N = 1024908267229;
 
