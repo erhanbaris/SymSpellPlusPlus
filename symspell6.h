@@ -56,7 +56,7 @@
 
 #ifdef _MSC_VER
 #   include <windows/port.h>
-typedef __int8 int8_t;
+    //typedef __int8 int8_t;
 typedef unsigned __int8 u_int8_t;
 
 typedef __int32 int32_t;
@@ -64,6 +64,14 @@ typedef unsigned __int32 u_int32_t;
 
 typedef __int64 int64_t;
 typedef unsigned __int64 u_int64_t;
+
+char *strndup(const char *s1, size_t n)
+{
+    char *copy = (char*)malloc(n + 1);
+    memcpy(copy, s1, n);
+    copy[n] = 0;
+    return copy;
+};
 #else
 #   define _strdup strdup
 #endif
@@ -761,10 +769,6 @@ namespace symspell {
                 //verbosity=Closest: all suggestions of smallest edit distance found, the suggestions are ordered by term frequency
                 //verbosity=All: all suggestions <= maxEditDistance, the suggestions are ordered by edit distance, then by term frequency (slower, no early termination)
 
-                this->hashset1Begin = this->hashset1.begin();
-                this->hashset2Begin = this->hashset2.begin();
-                this->candidatesBegin = this->candidates.begin();
-
                 // maxEditDistance used in Lookup can't be bigger than the maxDictionaryEditDistance
                 // used to construct the underlying dictionary structure.
                 if (maxEditDistance > MaxDictionaryEditDistance())  throw std::invalid_argument("maxEditDistance");
@@ -831,6 +835,7 @@ namespace symspell {
                 auto hashset1End = hashset1.end();
 
                 hashset2.insert(_strdup(input));
+                hashset2End = hashset2.end();
 
                 int maxEditDistance2 = maxEditDistance;
                 int candidatePointer = 0;
@@ -898,44 +903,67 @@ namespace symspell {
                             {
                                 //suggestions which have no common chars with input (inputLen<=maxEditDistance && suggestionLen<=maxEditDistance)
                                 distance = max(inputLen, suggestionLen);
-                                if (distance > maxEditDistance2 || !hashset2.insert(suggestion).second) continue;
+                                if (distance > maxEditDistance2)
+                                    continue;
+
+                                auto hashset2Finded = hashset2.find(suggestion);
+                                if (hashset2End == hashset2Finded)
+                                {
+                                    hashset2.insert(_strdup(suggestion));
+                                    hashset2End = hashset2.end();
+                                }
+                                else
+                                    continue;
                             }
                             else if (suggestionLen == 1)
                             {
                                 if (findCharLocation(input, suggestion[0]) < 0) distance = inputLen; else distance = inputLen - 1;
-                                if (distance > maxEditDistance2 || !hashset2.insert(suggestion).second) continue;
+                                distance = max(inputLen, suggestionLen);
+                                if (distance > maxEditDistance2)
+                                    continue;
+
+                                auto hashset2Finded = hashset2.find(suggestion);
+                                if (hashset2End == hashset2Finded)
+                                {
+                                    hashset2.insert(_strdup(suggestion));
+                                    hashset2End = hashset2.end();
+                                }
+                                else
+                                    continue;
                             }
                             else
-                                //number of edits in prefix ==maxediddistance  AND no identic suffix
-                                //, then editdistance>maxEditDistance and no need for Levenshtein calculation
-                                //      (inputLen >= prefixLength) && (suggestionLen >= prefixLength)
                                 if ((prefixLength - maxEditDistance == candidateLen)
-                                        && (((_min = min(inputLen, suggestionLen) - prefixLength) > 1)
-                                            && (std::strncmp(input, suggestion, max(inputLen + 1 - _min, suggestionLen + 1 - _min)) != 0) /*(input.substr(inputLen + 1 - _min) != suggestion.substr(suggestionLen + 1 - _min))*/)
-                                        || ((_min > 0) && (input[inputLen - _min] != suggestion[suggestionLen - _min])
-                                            && ((input[inputLen - _min - 1] != suggestion[suggestionLen - _min])
-                                                || (input[inputLen - _min] != suggestion[suggestionLen - _min - 1]))))
+                                    && (((_min = min(inputLen, suggestionLen) - prefixLength) > 1)
+                                        && (std::strncmp(input, suggestion, max(inputLen + 1 - _min, suggestionLen + 1 - _min)) != 0) /*(input.substr(inputLen + 1 - _min) != suggestion.substr(suggestionLen + 1 - _min))*/)
+                                    || ((_min > 0) && (input[inputLen - _min] != suggestion[suggestionLen - _min])
+                                        && ((input[inputLen - _min - 1] != suggestion[suggestionLen - _min])
+                                            || (input[inputLen - _min] != suggestion[suggestionLen - _min - 1]))))
                                 {
                                     continue;
                                 }
                                 else
                                 {
-                                    // DeleteInSuggestionPrefix is somewhat expensive, and only pays off when verbosity is Top or Closest.
-                                    if ((verbosity != Verbosity::All && !DeleteInSuggestionPrefix(candidate, candidateLen, suggestion, suggestionLen))
-                                            || !hashset2.insert(suggestion).second) continue;
+                                    if (verbosity != Verbosity::All && !DeleteInSuggestionPrefix(candidate, candidateLen, suggestion, suggestionLen)) continue;
+
+                                    auto hashset2Finded = hashset2.find(suggestion);
+                                    if (hashset2End == hashset2Finded)
+                                    {
+                                        hashset2.insert(_strdup(suggestion));
+                                        hashset2End = hashset2.end();
+                                    }
+                                    else
+                                        continue;
+
                                     distance = distanceComparer->Compare(input, suggestion, maxEditDistance2);
                                     if (distance < 0) continue;
                                 }
 
-                            //save some time
-                            //do not process higher distances than those already found, if verbosity<All (note: maxEditDistance2 will always equal maxEditDistance when Verbosity.All)
                             if (distance <= maxEditDistance2)
                             {
                                 suggestionCount = words[suggestion];
 
                                 std::unique_ptr<SuggestItem> si(new SuggestItem(_strdup(suggestion), distance, suggestionCount));
 
-                                //auto si = std::make_unique<SuggestItem>(new SuggestItem(suggestion, distance, suggestionCount));
                                 if (suggestionsLen > 0)
                                 {
                                     switch (verbosity)
@@ -992,7 +1020,7 @@ namespace symspell {
                             {
                                 hashset1.insert(tmp);
                                 hashset1End = hashset1.end();
-                                candidates.push_back(tmp);
+                                candidates.push_back(_strdup(tmp));
                                 ++candidatesLen;
                             }
                             else
@@ -1013,15 +1041,14 @@ namespace symspell {
 
                 //std::cout << hashset2.size() << std::endl;
 
-                for (auto it = hashset1Begin; it != hashset1End; ++it)
+                for (auto it = hashset1.begin(); it != hashset1End; ++it)
                     delete[] * it;
 
-                auto hashset2End = hashset2.end();
-                for (auto it = hashset2Begin; it != hashset2End; ++it)
+                for (auto it = hashset2.begin(); it != hashset2End; ++it)
                     delete[] * it;
 
                 auto candidatesEnd = candidates.end();
-                for (auto it = candidatesBegin; it != candidatesEnd; ++it)
+                for (auto it = candidates.begin(); it != candidatesEnd; ++it)
                     delete[] * it;
 
                 auto editsEnd = edits.end();
@@ -1043,7 +1070,7 @@ namespace symspell {
                 if (!stream.is_open())
                     return false;
 
-                char a,b,c;
+                char a, b, c;
                 a = stream.get();
                 b = stream.get();
                 c = stream.get();
@@ -1270,14 +1297,12 @@ namespace symspell {
             std::mutex mtx;
 
             vector<const char*> candidates;
-            vector<const char*>::iterator candidatesBegin;
 
             EditDistance* distanceComparer{ nullptr };
             CUSTOM_SET<const char*, hash<const char*>, comp_c_string> edits;
-            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset1;
-            CUSTOM_SET<const char*, hash<const char*>, comp_c_string>::iterator hashset1Begin;
-            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset2;
-            CUSTOM_SET<const char*, hash<const char*>, comp_c_string>::iterator hashset2Begin;
+            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset1; //TODO: use CUSTOM_SET<size_t> hashset1;
+            CUSTOM_SET<const char*, hash<const char*>, comp_c_string> hashset2; //TODO: use CUSTOM_SET<size_t> hashset1;
+            CUSTOM_SET<const char*, hash<const char*>, comp_c_string>::iterator hashset2End;  //TODO: use CUSTOM_SET<size_t>::iterator hashset2End; 
             hash<const char*> stringHash;
             long N = 1024908267229;
 
