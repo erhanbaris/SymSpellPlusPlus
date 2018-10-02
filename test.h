@@ -1,7 +1,7 @@
 #ifndef TEST_H
 #define TEST_H
 
-#define CATCH_CONFIG_MAIN
+#define CATCH_CONFIG_RUNNER
 #include "catch.hpp"
 #include "symspell6.h"
 
@@ -42,7 +42,7 @@ TEST_CASE( "WordsWithSharedPrefixShouldRetainCounts", "WordsWithSharedPrefixShou
 TEST_CASE( "AddAdditionalCountsShouldNotAddWordAgain", "AddAdditionalCountsShouldNotAddWordAgain" ) {
 
     symspell::SymSpell symSpell;
-    char* word = "hello";
+    const char word[6] = "hello";
     symSpell.CreateDictionaryEntry(word, 11);
     REQUIRE(1 ==  symSpell.WordCount());
     symSpell.CreateDictionaryEntry(word, 3);
@@ -52,11 +52,11 @@ TEST_CASE( "AddAdditionalCountsShouldNotAddWordAgain", "AddAdditionalCountsShoul
 TEST_CASE( "AddAdditionalCountsShouldIncreaseCount", "AddAdditionalCountsShouldIncreaseCount" ) {
 
     symspell::SymSpell symSpell;
-    char* word = "hello";
+    const char word[6] = "hello";
     symSpell.CreateDictionaryEntry(word, 11);
     vector<std::unique_ptr<symspell::SuggestItem>> result;
     symSpell.Lookup(word, symspell::Verbosity::Top, result);
-    long count = 0;
+    int64_t count = 0;
     if (result.size() == 1) count = result[0]->count;
     REQUIRE(11 == count);
     symSpell.CreateDictionaryEntry(word, 3);
@@ -69,11 +69,11 @@ TEST_CASE( "AddAdditionalCountsShouldIncreaseCount", "AddAdditionalCountsShouldI
 TEST_CASE( "AddAdditionalCountsShouldNotOverflow", "AddAdditionalCountsShouldNotOverflow" ) {
     int64_t m = (std::numeric_limits<int64_t>::max)();
     symspell::SymSpell symSpell;
-    char* word = "hello";
+    const char word[6] = "hello";
     vector<std::unique_ptr<symspell::SuggestItem>> result;
     symSpell.CreateDictionaryEntry(word, m - 10);
     symSpell.Lookup(word, symspell::Verbosity::Top, result);
-    long count = 0;
+    int64_t count = 0;
     if (result.size() == 1) count = result[0]->count;
     REQUIRE(m - 10 == count);
     symSpell.CreateDictionaryEntry(word, 11);

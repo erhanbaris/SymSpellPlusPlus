@@ -18,12 +18,13 @@
 
 #endif
 
+#include "../test.h"
 #include <iostream>
-#include "../symspell6.h"
 #include <chrono> 
 
 int main()
 {
+    //Catch::Session().run();
 	auto start = std::chrono::high_resolution_clock::now();
 	int index = 1000000;
 

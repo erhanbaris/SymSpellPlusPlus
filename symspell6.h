@@ -33,7 +33,7 @@
 #ifndef SYMSPELL6_H
 #define SYMSPELL6_H
 
-#define USE_GOOGLE_HASH_MAP
+#define USE_GOOGLE_aHASH_MAP
 
 
 #include <stdint.h>
@@ -85,10 +85,13 @@ char *strndup(const char *s1, size_t n)
 using google::dense_hash_map;
 using google::dense_hash_set;
 #else
-#   define CUSTOM_MAP unordered_map
-#   define CUSTOM_SET unordered_set
-#   include <unordered_map>
-#   include <unordered_set>
+#   define SPP_USE_SPP_ALLOC 1
+#   define CUSTOM_MAP sparse_hash_map
+#   define CUSTOM_SET sparse_hash_set
+#   include <sparsepp/spp.h>
+
+using spp::sparse_hash_map;
+using spp::sparse_hash_set;
 #endif
 
 using namespace std;
@@ -111,6 +114,10 @@ namespace symspell {
             return finded - text + 1;
         }
     }
+
+    struct Hash64 {
+        size_t operator()(uint64_t k) const { return (k ^ 14695981039346656037ULL) * 1099511628211ULL; }
+    };
 
     struct comp_c_string {
             bool operator()(const char *s1, const char *s2) const {
@@ -306,7 +313,7 @@ namespace symspell {
 
             std::size_t GetHashCode()
             {
-                return std::hash<const char*>{}(term);
+                return hash_c_string{}(term);
             }
 
             SuggestItem& ShallowCopy()
@@ -713,11 +720,8 @@ namespace symspell {
                         std::memcpy(tmp + i, word + i + 1, wordLen - 1 - i);
                         tmp[wordLen - 1] = '\0';
 
-                        if (deleteWordsEnd == deleteWords.find(stringHash(tmp)))
+                        if (deleteWords.insert(stringHash(tmp)).second)
                         {
-                            deleteWords.insert(stringHash(tmp));
-                            deleteWordsEnd = deleteWords.end();
-
                             //recursion, if maximum edit distance not yet reached
                             if (editDistance < maxDictionaryEditDistance && (wordLen-1) > 1)
                                 Edits(tmp, editDistance, deleteWords);
@@ -763,7 +767,7 @@ namespace symspell {
                 // maxEditDistance used in Lookup can't be bigger than the maxDictionaryEditDistance
                 // used to construct the underlying dictionary structure.
                 if (maxEditDistance > MaxDictionaryEditDistance())  throw std::invalid_argument("maxEditDistance");
-                long suggestionCount = 0;
+                int64_t suggestionCount = 0;
                 size_t suggestionsLen = 0;
                 auto wordsFinded = words.find(input);
                 int inputLen = strlen(input);
@@ -823,10 +827,7 @@ namespace symspell {
                 }
 
 
-                auto hashset1End = hashset1.end();
-
                 hashset2.insert(stringHash(input));
-                hashset2End = hashset2.end();
 
                 int maxEditDistance2 = maxEditDistance;
                 int candidatePointer = 0;
@@ -894,32 +895,14 @@ namespace symspell {
                             {
                                 //suggestions which have no common chars with input (inputLen<=maxEditDistance && suggestionLen<=maxEditDistance)
                                 distance = max(inputLen, suggestionLen);
-                                if (distance > maxEditDistance2)
-                                    continue;
-
-                                auto hashset2Finded = hashset2.find(stringHash(suggestion));
-                                if (hashset2End == hashset2Finded)
-                                {
-                                    hashset2.insert(stringHash(suggestion));
-                                    hashset2End = hashset2.end();
-                                }
-                                else
+                                if (distance > maxEditDistance2 || !hashset2.insert(stringHash(suggestion)).second)
                                     continue;
                             }
                             else if (suggestionLen == 1)
                             {
                                 if (findCharLocation(input, suggestion[0]) < 0) distance = inputLen; else distance = inputLen - 1;
                                 distance = max(inputLen, suggestionLen);
-                                if (distance > maxEditDistance2)
-                                    continue;
-
-                                auto hashset2Finded = hashset2.find(stringHash(suggestion));
-                                if (hashset2End == hashset2Finded)
-                                {
-                                    hashset2.insert(stringHash(suggestion));
-                                    hashset2End = hashset2.end();
-                                }
-                                else
+                                if (distance > maxEditDistance2 || !hashset2.insert(stringHash(suggestion)).second)
                                     continue;
                             }
                             else
@@ -934,16 +917,8 @@ namespace symspell {
                                 }
                                 else
                                 {
-                                    if (verbosity != Verbosity::All && !DeleteInSuggestionPrefix(candidate, candidateLen, suggestion, suggestionLen)) continue;
-
-                                    auto hashset2Finded = hashset2.find(stringHash(suggestion));
-                                    if (hashset2End == hashset2Finded)
-                                    {
-                                        hashset2.insert(stringHash(suggestion));
-                                        hashset2End = hashset2.end();
-                                    }
-                                    else
-                                        continue;
+                                    if ((verbosity != Verbosity::All && !DeleteInSuggestionPrefix(candidate, candidateLen, suggestion, suggestionLen)) ||
+                                        !hashset2.insert(stringHash(suggestion)).second) continue;
 
                                     distance = distanceComparer->Compare(input, suggestion, maxEditDistance2);
                                     if (distance < 0) continue;
@@ -1007,10 +982,8 @@ namespace symspell {
                             std::memcpy(tmp + i, candidate + i + 1, candidateLen - 1 - i);
                             tmp[candidateLen - 1] = '\0';
 
-                            if (hashset1End == hashset1.find(stringHash(tmp)))
+                            if (hashset1.insert(stringHash(tmp)).second)
                             {
-                                hashset1.insert(stringHash(tmp));
-                                hashset1End = hashset1.end();
                                 candidates.push_back(tmp);
                                 ++candidatesLen;
                             }
@@ -1284,19 +1257,19 @@ namespace symspell {
             CUSTOM_SET<size_t> hashset1; //TODO: use CUSTOM_SET<size_t> hashset1;
             CUSTOM_SET<size_t> hashset2; //TODO: use CUSTOM_SET<size_t> hashset1;
             CUSTOM_SET<size_t>::iterator hashset2End;  //TODO: use CUSTOM_SET<size_t>::iterator hashset2End; 
-            hash<const char*> stringHash;
+            hash_c_string stringHash;
             long N = 1024908267229;
 
             CUSTOM_MAP<size_t, vector<const char*>> deletes;
             CUSTOM_MAP<size_t, vector<const char*>>::iterator deletesEnd;
 
             // Dictionary of unique correct spelling words, and the frequency count for each word.
-            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string> words;
-            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string>::iterator wordsEnd;
+            CUSTOM_MAP<const char*, int64_t, hash_c_string, comp_c_string> words;
+            CUSTOM_MAP<const char*, int64_t, hash_c_string, comp_c_string>::iterator wordsEnd;
 
             // Dictionary of unique words that are below the count threshold for being considered correct spellings.
-            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string> belowThresholdWords;
-            CUSTOM_MAP<const char*, int64_t, hash<const char*>, comp_c_string>::iterator belowThresholdWordsEnd;
+            CUSTOM_MAP<const char*, int64_t, hash_c_string, comp_c_string> belowThresholdWords;
+            CUSTOM_MAP<const char*, int64_t, hash_c_string, comp_c_string>::iterator belowThresholdWordsEnd;
 
             bool DeleteInSuggestionPrefix(char const* del, int deleteLen, char const* suggestion, int suggestionLen)
             {
