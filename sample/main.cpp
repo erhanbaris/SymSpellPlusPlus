@@ -22,9 +22,27 @@
 #include <iostream>
 #include <chrono> 
 
+void test()
+{
+    symspell::SymSpell symSpell;
+    const char word[6] = "hello";
+    symSpell.CreateDictionaryEntry(word, 11);
+    vector<std::unique_ptr<symspell::SuggestItem>> result;
+    symSpell.Lookup(word, symspell::Verbosity::Top, result);
+    int64_t count = 0;
+    if (result.size() == 1) count = result[0]->count;
+    assert(11 == count);
+    symSpell.CreateDictionaryEntry(word, 3);
+    symSpell.Lookup(word, symspell::Verbosity::Top, result);
+    count = 0;
+    if (result.size() == 1) count = result[0]->count;
+    assert(11 + 3 == count);
+}
+
 int main()
 {
-    //Catch::Session().run();
+    test();
+    Catch::Session().run();
 	auto start = std::chrono::high_resolution_clock::now();
 	int index = 1000000;
 
@@ -43,6 +61,8 @@ int main()
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Elapsed time: " << elapsed.count() << " s\n";
 }
+
+
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu
 // Debug program: F5 or Debug > Start Debugging menu
