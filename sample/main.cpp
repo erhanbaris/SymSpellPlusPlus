@@ -41,7 +41,7 @@ void test()
 
 int main()
 {
-    test();
+    //test();
     Catch::Session().run();
 	auto start = std::chrono::high_resolution_clock::now();
 	int index = 1000000;

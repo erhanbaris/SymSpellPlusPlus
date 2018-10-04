@@ -744,10 +744,11 @@ namespace symspell {
             //verbosity=Closest: all suggestions of smallest edit distance found, the suggestions are ordered by term frequency
             //verbosity=All: all suggestions <= maxEditDistance, the suggestions are ordered by edit distance, then by term frequency (slower, no early termination)
 
+            suggestions.clear();
             // maxEditDistance used in Lookup can't be bigger than the maxDictionaryEditDistance
             // used to construct the underlying dictionary structure.
             if (maxEditDistance > MaxDictionaryEditDistance())  throw std::invalid_argument("maxEditDistance");
-            long suggestionCount = 0;
+            int64_t suggestionCount = 0;
             size_t suggestionsLen = suggestions.size();
             auto wordsFinded = words.find(input);
             int inputLen = strlen(input);
@@ -971,7 +972,7 @@ namespace symspell {
                         std::memcpy(tmp + i, candidate + i + 1, candidateLen - 1 - i);
                         tmp[candidateLen - 1] = '\0';
 
-                        if (hashset1End != hashset1.find(tmp))
+                        if (hashset1End == hashset1.find(tmp))
                         {
                             hashset1.insert(tmp);
                             hashset1End = hashset1.end();
