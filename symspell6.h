@@ -1,40 +1,5 @@
-/*
- *
-        NOT FINISHED YET
-        NOT TESTED YET
-
-        DO NOT USE THIS HEADER FILE UNTIL THIS MESSAGE REMOVED.
-
-
-        Sample Code:
-        symspell::SymSpell symSpell;
-        symSpell.CreateDictionaryEntry("erhan", 1);
-        symSpell.CreateDictionaryEntry("orhan", 2);
-        symSpell.CreateDictionaryEntry("ayhan", 3);
-        vector<symspell::SuggestItem*> items;
-        symSpell.Lookup("ozhan", symspell::Verbosity::Top, items);
-        std::cout << "Count : " << items.size() << std::endl;
-        if (items.size() > 0)
-        {
-                        auto itemsEnd = items.end();
-
-                        for(auto it = items.begin(); it != itemsEnd; ++it)
-                                        std::cout << "Item : '" << (*it)->term << "' Count : " << std::to_string((*it)->count) << " Distance : " << std::to_string((*it)->distance) << std::endl;
-        }
-
-        Todo List:
-        1- Change std::string to char*
-        2- Change levenshtein functions
-        3- Improve performance
- *
- */
-
-
 #ifndef SYMSPELL6_H
 #define SYMSPELL6_H
-
-#define USE_SPARSEPP
-
 
 #include <stdint.h>
 #include <vector>
@@ -85,9 +50,8 @@ char *strndup(const char *s1, size_t n)
 using spp::sparse_hash_map;
 using spp::sparse_hash_set;
 #else
-#   define SPP_USE_SPP_ALLOC 1
-#   define CUSTOM_MAP sparse_hash_map
-#   define CUSTOM_SET sparse_hash_set
+#   define CUSTOM_MAP unordered_map
+#   define CUSTOM_SET unordered_set
 #   include <unordered_map>
 #   include <unordered_set>
 #endif
