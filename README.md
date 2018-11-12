@@ -2,7 +2,8 @@
 
 Fast way to spell checking on C++.
 
-If you define USE_SPARSEPP before the including header file, it will much more faster than before. But also you have to sparsepp include to your project if you use USE_SPARSEPP preprocessor.
+If you define **USE_SPARSEPP** before the including header file, it will much more faster than before. But also you have to sparsepp include to your project if you use **USE_SPARSEPP** preprocessor.
+Project is based on **SymSpell Version 6.1** and it is much more faster than previous versions.
 
 ```c++
 #include <iostream>
